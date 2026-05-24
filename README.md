@@ -2,6 +2,8 @@
 
 A lightweight, portable Windows GUI for running an approved `yt-dlp` capture workflow in an organizational environment.
 
+![Screenshot](/screenshots/main.png)
+
 ## Table of Contents
 
 - [Overview](#overview)

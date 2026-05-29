@@ -36,12 +36,12 @@ It assumes the user is working under their organization's policies and has autho
 
 The app provides a guided interface for:
 
-- selecting required local tools and paths, including `script.ps1`, `yt-dlp.exe`, cookies, FFmpeg, and the Output Root
+- selecting required local tools and paths, including `script.ps1`, `yt-dlp.exe`, optional cookies, FFmpeg, and the Output Root
 - entering or templating case names with tags such as `%date%` and `%time%`
-- pasting URLs directly or using an input URL file
+- pasting URLs directly, using an input URL file, and optionally stripping parameter-like ampersand tags from pasted URLs
 - selecting VPN/network adapter checks when required
 - running preflight checks before capture
-- choosing capture behavior such as source scope, archive mode, date filters, max resolution, sidecar artifacts, title keyword filters, failure handling, and request pacing
+- choosing capture behavior such as source scope, archive mode, date filters, max resolution, sidecar artifacts, title keyword filters, failure handling, request pacing, and optional download speed limiting
 - using supported browser impersonation targets, with an option to view all targets returned by yt-dlp
 - opening, browsing, sorting, filtering, and reviewing case folders through the Case Browser
 - generating GUI thumbnails and cached media details when FFmpeg and FFprobe are available
@@ -112,7 +112,7 @@ For FFmpeg, use the Gyan.dev **release essentials** build unless you specificall
    - If `.py` files are associated with Python, double-click `gui.py`.
    - Otherwise, open the app folder in File Explorer, click the address bar, type `cmd`, press Enter, then run `python gui.py`.
    - If `python` is not available from that terminal, try `py gui.py`.
-3. Confirm the paths for the PowerShell script, yt-dlp, cookies file, Output Root, and FFmpeg folder.
+3. Confirm the paths for the PowerShell script, yt-dlp, optional cookies file, Output Root, and FFmpeg folder.
 4. Set the Output Root to a local non-synced folder so captures, logs, manifests, and GUI cache files are not actively synchronized while captures are running.
 5. Enter a case name or template. The default is `Case-%date%`; use **Insert Tag** for tags such as `%date%`, `%time%`, `%datetime%`, `%year%`, `%month%`, `%day%`, `%hour%`, `%minute%`, and `%second%`.
 6. Paste URLs into the URL box or select an input file. The URL box takes priority if both are used.
@@ -131,7 +131,7 @@ The app stores settings and profiles in a portable JSON settings file beside the
 
 The **Default** profile is always loaded on startup and is used for normal persistent settings. Custom profiles can be created, loaded, saved, and deleted from the Profile menu.
 
-App-level settings include Delete Cookies on Exit, Check VPN, Dark Mode, and Case Browser preferences such as filter, sort, icon scale, and current-folder-only view. These are not profile-specific.
+App-level settings include Delete Cookies on Exit, Check VPN, Dark Mode, and Case Browser preferences such as filter, sort, icon scale, and current-folder-only view. These are not profile-specific. Use Cookies File is profile-specific.
 
 The settings file uses a schema version. When an older settings file is loaded, recognized values are imported, new recognized values are created with defaults, and unrecognized values are preserved under `unrecognized_settings`.
 
@@ -139,11 +139,13 @@ Settings saves are skipped when the JSON payload has not changed to avoid unnece
 
 ## Cookies Handling
 
-The app can reference a cookies file and includes helper options to export, encrypt, decrypt, or delete the selected cookies file on exit.
+The app can optionally reference a cookies file and includes helper options to export, encrypt, decrypt, or delete the selected cookies file on exit.
 
 Cookies files should be treated as sensitive because a raw cookies file may function like a browser session. The app does not display cookie contents in the GUI.
 
-**Delete Cookies on Exit** is an app-level setting. When enabled, the app attempts to delete the file currently shown in the Cookies File field when the GUI closes.
+The Cookies File row includes a **Use** checkbox. When disabled, the cookies path field and Browse button are disabled, the cookies file is not passed to the capture script, and preflight skips cookies file validation.
+
+**Use Cookies File** is a profile-level setting. **Delete Cookies on Exit** is an app-level setting, not a profile setting. When Delete Cookies on Exit is enabled, the app attempts to delete the file currently shown in the Cookies File field when the GUI closes.
 
 ## Limitations
 
@@ -153,13 +155,53 @@ The preflight check confirms common prerequisites, including whether yt-dlp, FFm
 
 The VPN check only confirms whether the selected adapter is up. It does not prove that traffic is routed through the VPN.
 
-The Case Browser uses FFmpeg for thumbnails and FFprobe for cached media details. If either tool is unavailable, fallback placeholders or unavailable media details are shown.
+The Case Browser uses FFmpeg for thumbnails and FFprobe for cached media details. If either tool is unavailable, fallback placeholders or unavailable media details are shown. Case file verification runs only for a selected case folder or one of its subfolders; the Output Root itself cannot be verified. The GUI cache and manifests folders are excluded from SHA256 verification scope: `.gui-cache` contains regenerated display/cache data, and `manifests` contains verification records rather than captured evidence.
 
 The update checker only queries GitHub for the latest app release and opens the release page for manual download. It does not download, extract, replace, or run files.
+
+The optional **Strip** button in the URL box controls decodes common HTML ampersands such as `&amp;` and removes trailing parameter-like segments that match `&name=`.
+
+Download speed limiting is disabled by default. When enabled in Advanced Options, the app passes yt-dlp's `--limit-rate` option with the selected preset or a custom value such as `750K`, `20M`, or `1.5M`.
 
 The app is only a workflow wrapper. It does not make authorization, policy, or legal decisions.
 
 ## Changelog
+
+### v0.2026.0529 - URL Controls, Cookie Scope, Download Limits, and Verification Scope
+
+#### URL Box Workflow
+
+- Added one-word URL box buttons for Load, Save, Clear, and Strip.
+- Changed URL loading so input file contents append to the existing URL box instead of replacing it.
+- Removed URL load, save, and clear commands from the File menu.
+- Refined the optional Strip action to decode common HTML ampersands and remove parameter-like ampersand segments.
+
+#### Cookies and Profiles
+
+- Added a profile-level Use Cookies File setting.
+- Added a Cookies File row checkbox that disables the path field and Browse button when cookies are not in use.
+- Made preflight and capture skip cookies file validation and `-CookiesFile` passing when Use Cookies File is disabled.
+- Changed browser cookie export to use `https://example.com/` as the generic reference URL.
+- Removed the separate Load Default Profile command because Default is already available from the profile selection list.
+
+#### Advanced Capture Controls
+
+- Added an Advanced Options download speed limit control with disabled as the default.
+- Added download speed presets including 500K, 1M, 2M, 5M, 10M, and 50M.
+- Added custom download speed limit support for yt-dlp `--limit-rate` values.
+- Changed yt-dlp nightly build querying from 30 releases to 20 releases.
+
+#### PowerShell Capture Script
+
+- Added PowerShell support for passing yt-dlp `--limit-rate` when a download speed limit is selected.
+- Removed yt-dlp `--sleep-interval` and `--max-sleep-interval` while keeping `--sleep-requests` and the script-level pause between URLs.
+- Added logging for whether a cookies file is provided or disabled.
+
+#### Case Browser Verification
+
+- Excluded `.gui-cache` and `manifests` from SHA256 manifest generation and verification scope.
+- Updated case file verification to ignore `.gui-cache` and `manifests` paths, including older manifests that may reference cache files.
+- Changed Verify Case Files so Output Root cannot be verified directly; users must select a case folder or one of its subfolders.
 
 ### v0.2026.0528 - Workflow Polish, Preflight Validation, and Case Browser Refinements
 

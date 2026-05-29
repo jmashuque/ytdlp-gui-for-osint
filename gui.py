@@ -2,6 +2,7 @@ import base64
 import calendar
 import csv
 import hashlib
+import html
 import hmac
 import json
 import os
@@ -11,6 +12,7 @@ import shutil
 import subprocess
 import tempfile
 import urllib.request
+from urllib.parse import urlsplit, urlunsplit
 import webbrowser
 import threading
 import tkinter as tk
@@ -19,10 +21,10 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk, simpledialog
 
 
 APP_TITLE = "yt-dlp GUI for OSINT"
-APP_VERSION = "v0.2026.0528"
+APP_VERSION = "v0.2026.0529"
 APP_RELEASES_LATEST_URL = "https://github.com/jmashuque/ytdlp-gui-for-osint/releases/latest"
 APP_GITHUB_LATEST_API_URL = "https://api.github.com/repos/jmashuque/ytdlp-gui-for-osint/releases/latest"
-SETTINGS_SCHEMA_VERSION = 6
+SETTINGS_SCHEMA_VERSION = 9
 CAPTURE_DATE_MIN = datetime(2000, 1, 1)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +37,7 @@ DEFAULTS = {
     "input_file": os.path.join(ROOT, "urls.txt"),
     "case_name": "Case-%date%",
     "cookies_file": os.path.join(ROOT, "cookies.txt"),
+    "use_cookies_file": True,
     "output_root": os.path.join(ROOT, "Investigations"),
     "ffmpeg_folder": ROOT,
     "impersonate_target": "None",
@@ -58,6 +61,7 @@ DEFAULTS = {
     "date_before_month": "",
     "date_before_day": "",
     "rate_limit": "normal",
+    "download_speed_limit": "disabled",
     "keep_partials": False,
     "write_info_json": True,
     "write_source_link": True,
@@ -788,6 +792,15 @@ def log_capture_tool_versions(versions):
     append_log(f"  Deno: {versions.get('deno', {}).get('version', 'unavailable')}\n\n")
 
 
+def is_case_verification_ignored_path(path):
+    try:
+        parts = {part.lower() for part in os.path.normpath(path).split(os.sep)}
+        return ".gui-cache" in parts or "manifests" in parts
+    except Exception:
+        lowered = str(path).lower()
+        return ".gui-cache" in lowered or "manifests" in lowered
+
+
 def count_case_files(case_folder):
     counts = {
         "files": 0,
@@ -801,7 +814,7 @@ def count_case_files(case_folder):
         return counts
 
     for root_dir, dir_names, file_names in os.walk(case_folder):
-        dir_names[:] = [name for name in dir_names if name.lower() not in {"__pycache__"}]
+        dir_names[:] = [name for name in dir_names if name.lower() not in {"__pycache__", ".gui-cache", "manifests"}]
 
         for file_name in file_names:
             path = os.path.join(root_dir, file_name)
@@ -864,6 +877,7 @@ def build_case_summary_text(exit_code, submitted_url_count, paths, versions, cou
         f"  Max resolution: {max_resolution_var.get()}",
         f"  Failure handling: {failure_handling_var.get()}",
         f"  Rate limit: {rate_limit_var.get()}",
+        f"  Download speed limit: {download_speed_limit_var.get()}",
         f"  Impersonate target: {impersonate_var.get()}",
         f"  VPN check: {'enabled' if check_vpn_var.get() else 'disabled'}",
     ]
@@ -999,6 +1013,21 @@ def count_submitted_urls():
     return 0
 
 
+def append_text_to_urls_box(content):
+    content = str(content or "").strip()
+
+    if not content:
+        return
+
+    existing = urls_text.get("1.0", "end").strip()
+
+    if existing:
+        urls_text.insert("end", "\n")
+        urls_text.insert("end", content)
+    else:
+        urls_text.insert("1.0", content)
+
+
 def load_urls_from_input_file():
     path = input_file_var.get().strip()
 
@@ -1010,60 +1039,105 @@ def load_urls_from_input_file():
         with open(path, "r", encoding="utf-8-sig") as f:
             content = f.read()
 
-        urls_text.delete("1.0", "end")
-        urls_text.insert("1.0", content)
-        append_log(f"\nLoaded URLs from input file: {path}\n")
+        append_text_to_urls_box(content)
+        append_log(f"\nLoaded URLs from input file and appended them to the URL box: {path}\n")
     except UnicodeDecodeError:
         try:
             with open(path, "r", encoding="cp1252") as f:
                 content = f.read()
 
-            urls_text.delete("1.0", "end")
-            urls_text.insert("1.0", content)
-            append_log(f"\nLoaded URLs from input file using cp1252 fallback: {path}\n")
+            append_text_to_urls_box(content)
+            append_log(f"\nLoaded URLs from input file using cp1252 fallback and appended them to the URL box: {path}\n")
         except Exception as e:
             messagebox.showerror("Read error", f"Could not read input file:\n\n{e}")
     except Exception as e:
         messagebox.showerror("Read error", f"Could not read input file:\n\n{e}")
 
 
-def save_urls_to_file():
+def save_urls_to_input_file():
     content = urls_text.get("1.0", "end").strip()
 
     if not content:
         messagebox.showwarning("No URLs", "The URL box is empty.")
         return
 
-    default_name = f"{safe_case_name(case_name_var.get().strip() or 'urls')}_urls.txt"
-
-    path = filedialog.asksaveasfilename(
-        title="Save URLs to file",
-        defaultextension=".txt",
-        initialfile=default_name,
-        filetypes=[
-            ("Text files", "*.txt"),
-            ("All files", "*.*"),
-        ],
-    )
+    path = input_file_var.get().strip()
 
     if not path:
-        return
+        default_name = f"{safe_case_name(case_name_var.get().strip() or 'urls')}_urls.txt"
+        path = filedialog.asksaveasfilename(
+            title="Save URLs to input file",
+            defaultextension=".txt",
+            initialfile=default_name,
+            filetypes=[
+                ("Text files", "*.txt"),
+                ("All files", "*.*"),
+            ],
+        )
+
+        if not path:
+            return
+
+        input_file_var.set(path)
 
     try:
+        parent = os.path.dirname(os.path.abspath(path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
             f.write("\n")
 
-        input_file_var.set(path)
-        append_log(f"\nSaved URLs to file: {path}\n")
-        messagebox.showinfo("Saved", f"URLs saved to:\n\n{path}")
+        append_log(f"\nSaved URL box contents to input file: {path}\n")
     except Exception as e:
-        messagebox.showerror("Save failed", f"Could not save URLs:\n\n{e}")
+        messagebox.showerror("Save failed", f"Could not save URLs to input file:\n\n{e}")
+
+
+def save_urls_to_file():
+    save_urls_to_input_file()
 
 
 def clear_urls():
     urls_text.delete("1.0", "end")
-    append_log("\nCleared pasted URL box.\n")
+    append_log("\nCleared URL box.\n")
+
+
+def strip_url_extra_ampersand_tags():
+    content = urls_text.get("1.0", "end").strip()
+
+    if not content:
+        messagebox.showwarning("No URLs", "The URL box is empty.")
+        return
+
+    output_lines = []
+    changed = 0
+    parameter_pattern = re.compile(r"&[A-Za-z][A-Za-z0-9_-]*=")
+
+    for line in content.splitlines():
+        original_line = line
+        stripped_line = line.strip()
+
+        if not stripped_line or stripped_line.startswith("#"):
+            output_lines.append(original_line)
+            continue
+
+        decoded_line = html.unescape(stripped_line)
+        match = parameter_pattern.search(decoded_line)
+
+        if match:
+            new_url = decoded_line[:match.start()]
+        else:
+            new_url = decoded_line
+
+        if new_url != stripped_line:
+            changed += 1
+
+        output_lines.append(new_url)
+
+    urls_text.delete("1.0", "end")
+    urls_text.insert("1.0", "\n".join(output_lines).strip() + "\n")
+    append_log(f"\nStripped parameter-like ampersand tags from {changed} URL(s) in the URL box.\n")
 
 
 def derive_cookie_keys(password, salt):
@@ -1400,7 +1474,7 @@ def validate_inputs():
         if not input_file or not os.path.isfile(input_file):
             raise ValueError("Input file is missing or invalid, and no URLs were pasted.")
 
-    if cookies_file and not os.path.isfile(cookies_file):
+    if use_cookies_file_var.get() and cookies_file and not os.path.isfile(cookies_file):
         raise ValueError("Cookies file is invalid.")
 
     if output_root and not os.path.isdir(output_root):
@@ -1445,7 +1519,7 @@ def build_powershell_command():
     ]
 
     cookies_file = cookies_file_var.get().strip()
-    if cookies_file:
+    if use_cookies_file_var.get() and cookies_file:
         cmd += ["-CookiesFile", cookies_file]
 
     ffmpeg_folder = ffmpeg_folder_var.get().strip()
@@ -1512,6 +1586,12 @@ def build_powershell_command():
         cmd += ["-RateLimit", "Cautious"]
     else:
         cmd += ["-RateLimit", "Normal"]
+
+    download_speed_limit = normalize_download_speed_limit_value(download_speed_limit_var.get())
+    if not download_speed_limit:
+        raise ValueError("Download Speed Limit is invalid. Use disabled, 500K, 1M, 50M, or a custom value such as 20M.")
+    if download_speed_limit != "disabled":
+        cmd += ["-DownloadSpeedLimit", download_speed_limit]
 
     if keep_partials_var.get():
         cmd += ["-KeepPartials"]
@@ -1580,10 +1660,13 @@ def preflight_check(show_success_popup=True):
     else:
         add_check("Input file exists", os.path.isfile(input_file), input_file)
 
-    if cookies_file:
-        add_check("Cookies file exists", os.path.isfile(cookies_file), cookies_file)
+    if use_cookies_file_var.get():
+        if cookies_file:
+            add_check("Cookies file exists", os.path.isfile(cookies_file), cookies_file)
+        else:
+            add_check("Cookies file", True, "Enabled, but not specified")
     else:
-        add_check("Cookies file", True, "Not specified")
+        add_check("Cookies file", True, "Disabled by app setting; skipped")
 
     try:
         if output_root:
@@ -1668,6 +1751,7 @@ def get_settings_dict():
         "input_file": input_file_var.get(),
         "case_name": case_name_var.get(),
         "cookies_file": cookies_file_var.get(),
+        "use_cookies_file": use_cookies_file_var.get(),
         "output_root": output_root_var.get(),
         "ffmpeg_folder": ffmpeg_folder_var.get(),
         "impersonate_target": impersonate_var.get(),
@@ -1691,6 +1775,7 @@ def get_settings_dict():
         "date_before_month": date_before_month_var.get(),
         "date_before_day": date_before_day_var.get(),
         "rate_limit": rate_limit_var.get(),
+        "download_speed_limit": download_speed_limit_var.get(),
         "keep_partials": keep_partials_var.get(),
         "write_info_json": write_info_json_var.get(),
         "write_source_link": write_source_link_var.get(),
@@ -1709,6 +1794,8 @@ def apply_settings_dict(settings):
     input_file_var.set(settings.get("input_file", DEFAULTS["input_file"]))
     case_name_var.set(settings.get("case_name", DEFAULTS["case_name"]))
     cookies_file_var.set(settings.get("cookies_file", DEFAULTS["cookies_file"]))
+    use_cookies_file_var.set(bool(settings.get("use_cookies_file", DEFAULTS["use_cookies_file"])))
+    update_cookies_file_control_state()
     output_root_var.set(settings.get("output_root", DEFAULTS["output_root"]))
     ffmpeg_folder_var.set(settings.get("ffmpeg_folder", DEFAULTS["ffmpeg_folder"]))
     impersonate_var.set(settings.get("impersonate_target", DEFAULTS["impersonate_target"]))
@@ -1732,6 +1819,8 @@ def apply_settings_dict(settings):
     date_before_month_var.set(settings.get("date_before_month", DEFAULTS["date_before_month"]))
     date_before_day_var.set(settings.get("date_before_day", DEFAULTS["date_before_day"]))
     rate_limit_var.set(settings.get("rate_limit", DEFAULTS["rate_limit"]))
+    saved_download_speed_limit = normalize_download_speed_limit_value(settings.get("download_speed_limit", DEFAULTS["download_speed_limit"]))
+    download_speed_limit_var.set(saved_download_speed_limit or DEFAULTS["download_speed_limit"])
     keep_partials_var.set(bool(settings.get("keep_partials", DEFAULTS["keep_partials"])))
     write_info_json_var.set(bool(settings.get("write_info_json", DEFAULTS["write_info_json"])))
     write_source_link_var.set(bool(settings.get("write_source_link", DEFAULTS["write_source_link"])))
@@ -1903,6 +1992,24 @@ def save_app_settings(show_popup=False, changed_setting_label=None):
         return False
 
 
+def update_cookies_file_control_state():
+    try:
+        state = "normal" if use_cookies_file_var.get() else "disabled"
+        cookies_file_entry.configure(state=state)
+        cookies_file_browse_button.configure(state=state)
+    except Exception:
+        # The profile setting can be loaded before the Cookies File row exists during startup.
+        pass
+
+
+def toggle_use_cookies_file_setting():
+    update_cookies_file_control_state()
+    state = "enabled" if use_cookies_file_var.get() else "disabled"
+    saved = save_settings(show_popup=False)
+    if saved:
+        append_log(f"Profile setting changed: Use Cookies File {state}\n")
+
+
 def update_vpn_tools_menu_state():
     try:
         state = "normal" if check_vpn_var.get() else "disabled"
@@ -1935,6 +2042,10 @@ def toggle_check_vpn_setting():
 
 def delete_selected_cookies_file_on_exit():
     cookies_path = cookies_file_var.get().strip()
+
+    if not use_cookies_file_var.get():
+        append_log("\nCookies file use is disabled. Delete cookies on exit was skipped.\n")
+        return
 
     if not delete_cookies_on_exit_var.get():
         append_log("\nDelete cookies on exit is disabled. Cookies file was not deleted.\n")
@@ -2075,13 +2186,6 @@ def rebuild_profile_menu():
 
     profile_menu.add_command(label="Save Current Settings to Profile...", command=save_current_settings_to_profile)
     profile_menu.add_command(label="Delete Selected Profile...", command=delete_selected_profile)
-    profile_menu.add_separator()
-
-    profile_menu.add_command(
-        label="Load Default Profile",
-        command=lambda: load_profile(DEFAULT_PROFILE_NAME, show_popup=True),
-    )
-
     profile_menu.add_separator()
 
     profile_menu.add_command(label="Existing Profiles", state="disabled")
@@ -3044,7 +3148,7 @@ def open_app_update_dialog():
     query_latest_release()
 
 
-def fetch_ytdlp_nightly_releases(limit=30):
+def fetch_ytdlp_nightly_releases(limit=20):
     url = f"https://api.github.com/repos/yt-dlp/yt-dlp-nightly-builds/releases?per_page={limit}"
 
     req = urllib.request.Request(
@@ -3250,7 +3354,7 @@ def open_ytdlp_update_dialog():
             nonlocal nightly_releases
 
             try:
-                releases = fetch_ytdlp_nightly_releases(limit=30)
+                releases = fetch_ytdlp_nightly_releases(limit=20)
 
                 def update_ui():
                     nonlocal nightly_releases
@@ -3702,8 +3806,10 @@ def export_browser_cookies_dialog():
         "Cookies files can function like logged-in browser sessions. Do not share them unencrypted.\n"
         "Run this as the same Windows user that is signed into the browser.\n"
         "Close the browser first if the export fails due to locked profile files.\n\n"
-        "The reference URL is hardcoded to a single YouTube video and yt-dlp is run with "
-        "--simulate and --no-playlist to avoid processing homepage feeds or playlists."
+        "Warning: browser cookie export does not work reliably on every site. "
+        "The output log may show site-specific errors or warnings even when a cookies file is created.\n\n"
+        "The reference URL is hardcoded to https://example.com/ for generic browser-cookie export. "
+        "yt-dlp is run with --simulate and --no-playlist."
     )
 
     ttk.Label(frame, text=note, justify="left").grid(
@@ -3769,7 +3875,7 @@ def output_says_cookies_exported(output_text):
 
 def export_browser_cookies(browser, output_cookie_file, update_main_cookie_path=True):
     yt_dlp_path = yt_dlp_path_var.get().strip()
-    reference_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    reference_url = "https://example.com/"
 
     append_log(
         "\nStarting browser cookie export...\n"
@@ -3880,6 +3986,97 @@ def export_browser_cookies(browser, output_cookie_file, update_main_cookie_path=
 
 
 
+def is_valid_download_speed_limit(value):
+    value = str(value or "").strip()
+
+    if not value or value.lower() == "disabled":
+        return True
+
+    return bool(re.fullmatch(r"\d+(?:\.\d+)?[KMGTP]?", value, flags=re.IGNORECASE))
+
+
+def normalize_download_speed_limit_value(value):
+    value = str(value or "").strip()
+
+    if not value or value.lower() == "disabled":
+        return "disabled"
+
+    if value.lower() == "custom":
+        return "custom"
+
+    if not is_valid_download_speed_limit(value):
+        return ""
+
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)([KMGTP]?)", value, flags=re.IGNORECASE)
+    if not match:
+        return ""
+
+    number, suffix = match.groups()
+    return f"{number}{suffix.upper()}"
+
+
+def choose_custom_download_speed_limit():
+    current = download_speed_limit_var.get().strip()
+    if current.lower() in ("", "disabled", "custom"):
+        initial = "20M"
+    else:
+        initial = current
+
+    value = simpledialog.askstring(
+        "Custom Download Speed Limit",
+        "Enter a yt-dlp --limit-rate value, for example 750K, 2M, 20M, or 1.5M:",
+        initialvalue=initial,
+        parent=root,
+    )
+
+    if value is None:
+        download_speed_limit_var.set("disabled")
+        update_capture_options_summary()
+        return
+
+    normalized = normalize_download_speed_limit_value(value)
+
+    if not normalized or normalized == "custom":
+        messagebox.showerror(
+            "Invalid speed limit",
+            "Enter a valid speed limit such as 750K, 2M, 20M, or 1.5M.",
+        )
+        download_speed_limit_var.set("disabled")
+        update_capture_options_summary()
+        return
+
+    download_speed_limit_var.set(normalized)
+    update_capture_options_summary()
+
+
+def normalize_download_speed_limit_selection(prompt_for_custom=False):
+    current = download_speed_limit_var.get().strip()
+
+    if current.lower() == "custom":
+        if prompt_for_custom:
+            choose_custom_download_speed_limit()
+        else:
+            download_speed_limit_var.set("disabled")
+            update_capture_options_summary()
+        return
+
+    normalized = normalize_download_speed_limit_value(current)
+    if normalized:
+        download_speed_limit_var.set(normalized)
+
+    update_capture_options_summary()
+
+
+def on_download_speed_limit_selected(event=None):
+    normalize_download_speed_limit_selection(prompt_for_custom=True)
+
+
+def on_download_speed_limit_focus_out(event=None):
+    # Do not open the custom dialog on focus loss. Combobox focus changes after
+    # selecting or dismissing the custom dialog can otherwise reopen it.
+    normalize_download_speed_limit_selection(prompt_for_custom=False)
+
+
 def update_capture_options_summary(*args):
     try:
         mode = "Metadata only" if capture_mode_var.get() == "metadata_only" else "Media + artifacts"
@@ -3898,6 +4095,8 @@ def update_capture_options_summary(*args):
             "cautious": "cautious",
         }
         rate_text = rate_names.get(rate_limit_var.get(), "normal")
+        speed_limit = normalize_download_speed_limit_value(download_speed_limit_var.get())
+        speed_text = "speed unlimited" if speed_limit == "disabled" else f"speed {speed_limit or 'invalid'}"
         resolution_text = "best" if max_resolution_var.get() == "best" else f"max {max_resolution_var.get()}p"
         failure_text = "stop on fail" if failure_handling_var.get() == "stop" else "continue on fail"
 
@@ -3936,7 +4135,7 @@ def update_capture_options_summary(*args):
             artifacts.append("date " + "/".join(date_filters))
 
         artifact_text = ", ".join(artifacts) if artifacts else "no sidecars"
-        capture_options_summary_var.set(f"{mode}; {scope}; {archive_text}; {resolution_text}; {rate_text}; {failure_text}; {artifact_text}")
+        capture_options_summary_var.set(f"{mode}; {scope}; {archive_text}; {resolution_text}; {rate_text}; {speed_text}; {failure_text}; {artifact_text}")
     except Exception:
         pass
 
@@ -3979,7 +4178,7 @@ def toggle_capture_options_panel():
     capture_options_panel.grid(
         row=10,
         column=0,
-        columnspan=3,
+        columnspan=4,
         rowspan=8,
         sticky="nsew",
         padx=0,
@@ -4016,7 +4215,7 @@ def toggle_advanced_options_panel():
     advanced_options_panel.grid(
         row=10,
         column=0,
-        columnspan=3,
+        columnspan=4,
         rowspan=8,
         sticky="nsew",
         padx=0,
@@ -4960,6 +5159,10 @@ def open_case_browser():
         try:
             output_root_abs = os.path.abspath(output_root)
             folder_abs = os.path.abspath(folder_path)
+
+            if os.path.normcase(folder_abs) == os.path.normcase(output_root_abs):
+                return ""
+
             if os.path.commonpath([output_root_abs, folder_abs]) == output_root_abs:
                 rel = os.path.relpath(folder_abs, output_root_abs)
                 first_part = rel.split(os.sep)[0]
@@ -4968,7 +5171,7 @@ def open_case_browser():
         except Exception:
             pass
 
-        return folder_path
+        return ""
 
     def find_latest_manifest(case_root):
         candidates = []
@@ -4997,6 +5200,15 @@ def open_case_browser():
     def verify_case_files():
         folder_path = get_selected_browser_folder()
         case_root = get_case_root_for_browser_folder(folder_path)
+
+        if not case_root:
+            messagebox.showwarning(
+                "Select a case folder",
+                "Select a case folder or a folder inside a case before verifying case files.\n\n"
+                "The Output Root itself cannot be verified.",
+            )
+            return
+
         manifest_path = find_latest_manifest(case_root)
 
         if not manifest_path:
@@ -5021,15 +5233,20 @@ def open_case_browser():
                     if not path:
                         continue
 
-                    manifest_paths.add(os.path.abspath(path))
+                    abs_path = os.path.abspath(path)
 
-                    if not os.path.isfile(path):
+                    if is_case_verification_ignored_path(abs_path):
+                        continue
+
+                    manifest_paths.add(abs_path)
+
+                    if not os.path.isfile(abs_path):
                         missing.append(path)
                         continue
 
                     try:
                         h = hashlib.sha256()
-                        with open(path, "rb") as input_file_obj:
+                        with open(abs_path, "rb") as input_file_obj:
                             for chunk in iter(lambda: input_file_obj.read(1024 * 1024), b""):
                                 h.update(chunk)
                         actual_hash = h.hexdigest().upper()
@@ -5044,9 +5261,11 @@ def open_case_browser():
 
             untracked_count = 0
             for root_dir, dir_names, file_names in os.walk(case_root):
-                dir_names[:] = [name for name in dir_names if name.lower() not in {"__pycache__"}]
+                dir_names[:] = [name for name in dir_names if name.lower() not in {"__pycache__", ".gui-cache", "manifests"}]
                 for file_name in file_names:
                     path = os.path.abspath(os.path.join(root_dir, file_name))
+                    if is_case_verification_ignored_path(path):
+                        continue
                     if path == os.path.abspath(manifest_path):
                         continue
                     if path not in manifest_paths:
@@ -5058,6 +5277,7 @@ def open_case_browser():
                 f"Missing: {len(missing)}\n"
                 f"Changed/unreadable: {len(changed)}\n"
                 f"New/untracked since manifest: {untracked_count}\n"
+                f"Ignored folders: .gui-cache, manifests\n"
             )
 
             append_log("\nCase file verification:\n" + summary + "\n")
@@ -5147,6 +5367,7 @@ yt_dlp_version_status_var = tk.StringVar(value="yt-dlp: not checked")
 preflight_done_var = tk.BooleanVar(value=False)
 delete_cookies_on_exit_var = tk.BooleanVar(value=APP_SETTINGS_DEFAULTS["delete_cookies_on_exit"])
 check_vpn_var = tk.BooleanVar(value=APP_SETTINGS_DEFAULTS["check_vpn"])
+use_cookies_file_var = tk.BooleanVar(value=DEFAULTS["use_cookies_file"])
 dark_mode_var = tk.BooleanVar(value=APP_SETTINGS_DEFAULTS["dark_mode"])
 case_browser_filter_var = tk.StringVar(value=APP_SETTINGS_DEFAULTS["case_browser_filter"])
 case_browser_sort_var = tk.StringVar(value=APP_SETTINGS_DEFAULTS["case_browser_sort"])
@@ -5173,6 +5394,7 @@ date_before_year_var = tk.StringVar(value=DEFAULTS["date_before_year"])
 date_before_month_var = tk.StringVar(value=DEFAULTS["date_before_month"])
 date_before_day_var = tk.StringVar(value=DEFAULTS["date_before_day"])
 rate_limit_var = tk.StringVar(value=DEFAULTS["rate_limit"])
+download_speed_limit_var = tk.StringVar(value=DEFAULTS["download_speed_limit"])
 keep_partials_var = tk.BooleanVar(value=DEFAULTS["keep_partials"])
 write_info_json_var = tk.BooleanVar(value=DEFAULTS["write_info_json"])
 write_source_link_var = tk.BooleanVar(value=DEFAULTS["write_source_link"])
@@ -5204,6 +5426,7 @@ for option_var in [
     date_before_month_var,
     date_before_day_var,
     rate_limit_var,
+    download_speed_limit_var,
     keep_partials_var,
     write_info_json_var,
     write_source_link_var,
@@ -5222,20 +5445,31 @@ main = ttk.Frame(root, padding=12)
 main.pack(fill="both", expand=True)
 
 main.columnconfigure(1, weight=1)
+main.columnconfigure(3, weight=0)
 main.rowconfigure(12, weight=1)
 main.rowconfigure(17, weight=2)
 
 
 def add_file_row(row, label, var):
     ttk.Label(main, text=label).grid(row=row, column=0, sticky="w", pady=3)
-    ttk.Entry(main, textvariable=var).grid(row=row, column=1, sticky="ew", padx=6, pady=3)
-    ttk.Button(main, text="Browse...", command=lambda: browse_file(var, label)).grid(row=row, column=2, sticky="e", pady=3)
+
+    row_frame = ttk.Frame(main)
+    row_frame.grid(row=row, column=1, columnspan=3, sticky="ew", padx=6, pady=3)
+    row_frame.columnconfigure(0, weight=1)
+
+    ttk.Entry(row_frame, textvariable=var).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+    ttk.Button(row_frame, text="Browse...", command=lambda: browse_file(var, label)).grid(row=0, column=1, sticky="e")
 
 
 def add_folder_row(row, label, var):
     ttk.Label(main, text=label).grid(row=row, column=0, sticky="w", pady=3)
-    ttk.Entry(main, textvariable=var).grid(row=row, column=1, sticky="ew", padx=6, pady=3)
-    ttk.Button(main, text="Browse...", command=lambda: browse_folder(var, label)).grid(row=row, column=2, sticky="e", pady=3)
+
+    row_frame = ttk.Frame(main)
+    row_frame.grid(row=row, column=1, columnspan=3, sticky="ew", padx=6, pady=3)
+    row_frame.columnconfigure(0, weight=1)
+
+    ttk.Entry(row_frame, textvariable=var).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+    ttk.Button(row_frame, text="Browse...", command=lambda: browse_folder(var, label)).grid(row=0, column=1, sticky="e")
 
 
 # Menu bar keeps less-used actions out of the main workflow.
@@ -5244,10 +5478,6 @@ root.config(menu=menu_bar)
 
 file_menu = tk.Menu(menu_bar, tearoff=0)
 menu_bar.add_cascade(label="File", menu=file_menu)
-file_menu.add_command(label="Load URLs From Input File", command=load_urls_from_input_file)
-file_menu.add_command(label="Save URLs To File", command=save_urls_to_file)
-file_menu.add_command(label="Clear URL Box", command=clear_urls)
-file_menu.add_separator()
 file_menu.add_command(label="Open Output Folder", command=open_output_folder)
 file_menu.add_command(label="Open Current Case Folder", command=open_current_case_folder)
 file_menu.add_separator()
@@ -5319,7 +5549,7 @@ add_file_row(0, "Script Path", script_path_var)
 
 ttk.Label(main, text="yt-dlp Path").grid(row=1, column=0, sticky="nw", pady=3)
 yt_dlp_path_frame = ttk.Frame(main)
-yt_dlp_path_frame.grid(row=1, column=1, columnspan=2, sticky="ew", padx=6, pady=3)
+yt_dlp_path_frame.grid(row=1, column=1, columnspan=3, sticky="ew", padx=6, pady=3)
 yt_dlp_path_frame.columnconfigure(0, weight=1)
 
 ttk.Entry(yt_dlp_path_frame, textvariable=yt_dlp_path_var).grid(
@@ -5360,7 +5590,7 @@ add_file_row(2, "Input File", input_file_var)
 
 ttk.Label(main, text="Case Name").grid(row=3, column=0, sticky="nw", pady=(6, 3))
 case_name_frame = ttk.Frame(main)
-case_name_frame.grid(row=3, column=1, columnspan=2, sticky="ew", padx=6, pady=3)
+case_name_frame.grid(row=3, column=1, columnspan=3, sticky="ew", padx=6, pady=3)
 case_name_frame.columnconfigure(0, weight=1)
 
 case_name_entry = ttk.Entry(case_name_frame, textvariable=case_name_var)
@@ -5399,13 +5629,38 @@ for tag, description in case_name_tag_items:
 case_tag_menu_button.grid(row=0, column=1, sticky="e", padx=(0, 6))
 ttk.Button(case_name_frame, text="Open", command=open_current_case_folder).grid(row=0, column=2, sticky="e")
 
-add_file_row(4, "Cookies File", cookies_file_var)
+ttk.Label(main, text="Cookies File").grid(row=4, column=0, sticky="w", pady=3)
+
+cookies_file_frame = ttk.Frame(main)
+cookies_file_frame.grid(row=4, column=1, columnspan=3, sticky="ew", padx=6, pady=3)
+cookies_file_frame.columnconfigure(0, weight=1)
+
+cookies_file_entry = ttk.Entry(cookies_file_frame, textvariable=cookies_file_var)
+cookies_file_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+
+cookies_file_browse_button = ttk.Button(
+    cookies_file_frame,
+    text="Browse...",
+    command=lambda: browse_file(cookies_file_var, "Cookies File"),
+)
+cookies_file_browse_button.grid(row=0, column=1, sticky="e", padx=(0, 6))
+
+cookies_file_use_check = ttk.Checkbutton(
+    cookies_file_frame,
+    text="Use",
+    variable=use_cookies_file_var,
+    command=toggle_use_cookies_file_setting,
+)
+cookies_file_use_check.grid(row=0, column=2, sticky="e")
+
+update_cookies_file_control_state()
+
 add_folder_row(5, "Output Root", output_root_var)
 add_folder_row(6, "FFmpeg Folder", ffmpeg_folder_var)
 
 ttk.Label(main, text="Impersonate Target").grid(row=7, column=0, sticky="w", pady=3)
 impersonate_frame = ttk.Frame(main)
-impersonate_frame.grid(row=7, column=1, columnspan=2, sticky="ew", padx=6, pady=3)
+impersonate_frame.grid(row=7, column=1, columnspan=3, sticky="ew", padx=6, pady=3)
 impersonate_frame.columnconfigure(0, weight=1)
 
 impersonate_menu_box = ttk.Combobox(
@@ -5426,7 +5681,7 @@ check_targets_button.grid(row=0, column=1, sticky="e")
 impersonate_menu = impersonate_menu_box
 
 impersonate_status_frame = ttk.Frame(main)
-impersonate_status_frame.grid(row=8, column=1, columnspan=2, sticky="ew", padx=6, pady=(0, 4))
+impersonate_status_frame.grid(row=8, column=1, columnspan=3, sticky="ew", padx=6, pady=(0, 4))
 impersonate_status_frame.columnconfigure(0, weight=1)
 
 ttk.Label(
@@ -5442,7 +5697,7 @@ ttk.Checkbutton(
 ).grid(row=0, column=1, sticky="e")
 
 options_frame = ttk.Frame(main)
-options_frame.grid(row=9, column=1, columnspan=2, sticky="ew", padx=6, pady=5)
+options_frame.grid(row=9, column=1, columnspan=3, sticky="ew", padx=6, pady=5)
 options_frame.columnconfigure(2, weight=1)
 
 capture_options_button = ttk.Button(
@@ -5503,14 +5758,30 @@ update_vpn_section_visibility()
 
 ttk.Label(
     main,
-    text="Paste URLs below, one per line. If this box is used, it overrides the Input File field. URL load/save/clear actions are in the File menu.",
-).grid(row=11, column=0, columnspan=3, sticky="w", pady=(10, 3))
+    text="Paste URLs below, one per line. If this box is used, it overrides the Input File field.",
+).grid(row=11, column=0, columnspan=4, sticky="w", pady=(10, 3))
 
 urls_text = scrolledtext.ScrolledText(main, height=7, wrap="word")
 urls_text.grid(row=12, column=0, columnspan=3, sticky="nsew", pady=(0, 8))
 
+url_button_frame = ttk.Frame(main)
+url_button_frame.grid(row=12, column=3, sticky="ns", padx=(8, 0), pady=(0, 8))
+
+for index, (label, command) in enumerate((
+    ("Load", load_urls_from_input_file),
+    ("Save", save_urls_to_input_file),
+    ("Clear", clear_urls),
+    ("Strip", strip_url_extra_ampersand_tags),
+)):
+    ttk.Button(
+        url_button_frame,
+        text=label,
+        command=command,
+        width=8,
+    ).grid(row=index, column=0, sticky="ew", pady=(0 if index == 0 else 6, 0))
+
 workflow_frame = ttk.Frame(main)
-workflow_frame.grid(row=13, column=0, columnspan=3, sticky="ew", pady=(8, 12))
+workflow_frame.grid(row=13, column=0, columnspan=4, sticky="ew", pady=(8, 12))
 workflow_frame.columnconfigure(0, weight=1)
 workflow_frame.columnconfigure(1, weight=0)
 workflow_frame.columnconfigure(2, weight=1)
@@ -5573,12 +5844,12 @@ copy_summary_button = tk.Button(
 )
 copy_summary_button.grid(row=0, column=4, sticky="ew")
 
-ttk.Label(main, textvariable=status_var).grid(row=14, column=0, columnspan=3, sticky="w", pady=(0, 6))
+ttk.Label(main, textvariable=status_var).grid(row=14, column=0, columnspan=4, sticky="w", pady=(0, 6))
 
-ttk.Label(main, text="Output Log").grid(row=15, column=0, columnspan=3, sticky="w")
+ttk.Label(main, text="Output Log").grid(row=15, column=0, columnspan=4, sticky="w")
 
 log_box = scrolledtext.ScrolledText(main, height=14, wrap="word")
-log_box.grid(row=17, column=0, columnspan=3, sticky="nsew")
+log_box.grid(row=17, column=0, columnspan=4, sticky="nsew")
 
 capture_options_panel = ttk.LabelFrame(main, text="Capture Options", padding=12)
 capture_options_panel.columnconfigure(0, weight=1)
@@ -5872,7 +6143,7 @@ ttk.Radiobutton(
     command=update_capture_options_summary,
 ).pack(anchor="w", pady=2)
 
-rate_frame = ttk.LabelFrame(advanced_options_panel, text="Rate Limit", padding=8)
+rate_frame = ttk.LabelFrame(advanced_options_panel, text="Request Rate Limit", padding=8)
 rate_frame.grid(row=2, column=1, columnspan=2, sticky="nsew", padx=(8, 0), pady=(0, 8))
 ttk.Radiobutton(
     rate_frame,
@@ -5896,8 +6167,29 @@ ttk.Radiobutton(
     command=update_capture_options_summary,
 ).pack(anchor="w", pady=2)
 
+download_speed_frame = ttk.LabelFrame(advanced_options_panel, text="Download Speed Limit", padding=8)
+download_speed_frame.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+download_speed_frame.columnconfigure(1, weight=1)
+
+ttk.Label(
+    download_speed_frame,
+    text="Maximum transfer speed",
+).grid(row=0, column=0, sticky="w", padx=(0, 8), pady=3)
+
+download_speed_menu = ttk.Combobox(
+    download_speed_frame,
+    textvariable=download_speed_limit_var,
+    values=["disabled", "500K", "1M", "2M", "5M", "10M", "50M", "custom"],
+    state="normal",
+    width=12,
+)
+download_speed_menu.grid(row=0, column=1, sticky="w", pady=3)
+download_speed_menu.bind("<<ComboboxSelected>>", on_download_speed_limit_selected)
+download_speed_menu.bind("<FocusOut>", on_download_speed_limit_focus_out)
+download_speed_menu.bind("<Return>", lambda event: normalize_download_speed_limit_selection(prompt_for_custom=False))
+
 advanced_button_frame = ttk.Frame(advanced_options_panel)
-advanced_button_frame.grid(row=3, column=0, columnspan=3, sticky="e", pady=(8, 0))
+advanced_button_frame.grid(row=4, column=0, columnspan=3, sticky="e", pady=(8, 0))
 
 ttk.Button(
     advanced_button_frame,

@@ -57,6 +57,9 @@ param(
     [ValidateSet("Fast", "Normal", "Cautious")]
     [string]$RateLimit = "Normal",
 
+    [Parameter(Mandatory = $false)]
+    [string]$DownloadSpeedLimit = "Disabled",
+
     [switch]$KeepPartials,
 
     [Parameter(Mandatory = $false)]
@@ -468,6 +471,16 @@ switch ($RateLimit) {
 
 $SleepMaxSeconds = $SleepBaselineSeconds * 2
 
+$DownloadSpeedLimitClean = $DownloadSpeedLimit.Trim()
+
+if ([string]::IsNullOrWhiteSpace($DownloadSpeedLimitClean)) {
+    $DownloadSpeedLimitClean = "Disabled"
+}
+
+if ($DownloadSpeedLimitClean -ne "Disabled" -and $DownloadSpeedLimitClean -notmatch '^\d+(\.\d+)?[KMGTP]?$') {
+    throw "DownloadSpeedLimit must be Disabled or a yt-dlp --limit-rate value such as 750K, 2M, 20M, or 1.5M."
+}
+
 Write-Section "Preflight checks"
 
 if (-not (Test-Path -LiteralPath $InputFile -PathType Leaf)) {
@@ -481,6 +494,12 @@ if ($CookiesFile -and -not (Test-Path -LiteralPath $CookiesFile -PathType Leaf))
 Write-Host "yt-dlp:        $YtDlpPath"
 Write-Host "Deno:          $DenoPath"
 Write-Host "FFmpeg folder: $FFmpegFolder"
+if ($CookiesFile) {
+    Write-Host "Cookies file:  $CookiesFile"
+}
+else {
+    Write-Host "Cookies file:  Disabled or not specified"
+}
 Write-Host "Case:          $CaseDir"
 
 Write-Section "Version info"
@@ -509,7 +528,8 @@ $OptionLines = @(
     "Archive mode:           $ArchiveMode",
     "Date after:             $DateAfterClean",
     "Date before:            $DateBeforeClean",
-    "Rate limit:             $RateLimit ($SleepBaselineSeconds-$SleepMaxSeconds sec)",
+    "Rate limit:             $RateLimit ($SleepBaselineSeconds-$SleepMaxSeconds sec between URLs; $SleepRequestSeconds sec yt-dlp request sleep)",
+    "Download speed limit:   $DownloadSpeedLimitClean",
     "Keep partials:          $KeepPartials",
     "Max resolution:         $MaxResolution",
     "Save playlist metadata: $SavePlaylistMetadata",
@@ -557,8 +577,6 @@ $CommonArgs = @(
     "--no-embed-subs",
 
     "--sleep-requests", "$SleepRequestSeconds",
-    "--sleep-interval", "$SleepBaselineSeconds",
-    "--max-sleep-interval", "$SleepMaxSeconds",
 
     "--retries", "5",
     "--fragment-retries", "5",
@@ -671,6 +689,10 @@ elseif ($PreferMp4 -and -not $MetadataOnly) {
     )
 }
 
+if ($DownloadSpeedLimitClean -ne "Disabled") {
+    $CommonArgs += @("--limit-rate", $DownloadSpeedLimitClean)
+}
+
 if ($CookiesFile) {
     $CommonArgs += @("--cookies", $CookiesFile)
 }
@@ -739,6 +761,14 @@ Write-Section "Hashing captured files"
 
 $manifestRows = foreach ($file in Get-ChildItem $CaseDir -Recurse -File) {
     if ($file.FullName -eq $HashManifest) {
+        continue
+    }
+
+    if ($file.FullName -like "*\.gui-cache\*") {
+        continue
+    }
+
+    if ($file.FullName -like "*\manifests\*") {
         continue
     }
 

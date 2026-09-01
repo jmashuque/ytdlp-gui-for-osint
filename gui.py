@@ -33,7 +33,7 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk, simpledialog
 
 
 APP_TITLE = "WAVI Capture GUI for OSINT"
-APP_VERSION = "v3.2026.0816"
+APP_VERSION = "v3.2026.0831"
 APP_RELEASES_LATEST_URL = "https://github.com/jmashuque/wavi-capture-gui-for-osint/releases/latest"
 APP_WINDOW_WIDTH = 1180
 APP_WINDOW_DEFAULT_HEIGHT = 790
@@ -53,7 +53,7 @@ OUTPUT_LOG_ALL_MAX_CHARS = 6 * 1024 * 1024
 OUTPUT_LOG_ALL_MAX_RECORDS = 50000
 
 APP_GITHUB_LATEST_API_URL = "https://api.github.com/repos/jmashuque/wavi-capture-gui-for-osint/releases/latest"
-SETTINGS_SCHEMA_VERSION = 44
+SETTINGS_SCHEMA_VERSION = 45
 CAPTURE_DATE_MIN = datetime(2000, 1, 1)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -70,11 +70,11 @@ WEB_INTERACTIVE_BLACKLIST_FILE = os.path.join(ROOT, "interactive-blacklist.txt")
 GUI_TEMP_DIR = os.path.join(ROOT, "gui-temp")
 WEB_CAPTURE_STALE_TEMP_AGE_SECONDS = 24 * 60 * 60
 DEBUG_LOG_FILE = os.path.join(ROOT, "gui-debug.log")
-JOBS_FILE_VERSION = 3
+JOBS_FILE_VERSION = 4
 DEFAULT_PROFILE_NAME = "Default"
 APP_TAB_LABELS = [
     "Audio/Video Capture",
-    "Image Capture",
+    "Gallery/Profile Capture",
     "Webpage Capture",
     "Job Queue",
     "Output Log",
@@ -82,6 +82,8 @@ APP_TAB_LABELS = [
     "Case Browser",
 ]
 CAPTURE_TAB_LABELS = tuple(APP_TAB_LABELS[:3])
+LEGACY_IMAGE_CAPTURE_TAB_LABEL = "Image Capture"
+IMAGE_CAPTURE_TAB_LABEL = "Gallery/Profile Capture"
 
 DEFAULT_WEB_PDF_HEADER_TEMPLATE = (
     '<div style="width:100%; font-size:8px; color:#444; padding:0 0.3in; '
@@ -118,6 +120,8 @@ DEFAULTS = {
     "image_retries": "4",
     "image_timeout": "30",
     "image_concurrent_captures": "1",
+    "image_scope_selected_keywords": "",
+    "image_scope_custom_keywords": "",
     "web_script_path": os.path.join(ROOT, "script-webcapture.ps1"),
     "web_deno_path": os.path.join(ROOT, "deno.exe"),
     "web_browser_path": "",
@@ -354,7 +358,7 @@ DOMAIN_PRESET_SETTING_KEYS = [
     "embed_subs",
     "embed_chapters",
     "embed_info_json",
-    # Image Capture tab settings
+    # Gallery/Profile Capture tab settings
     "image_capture_mode",
     "image_archive_mode",
     "image_write_metadata",
@@ -368,6 +372,8 @@ DOMAIN_PRESET_SETTING_KEYS = [
     "image_retries",
     "image_timeout",
     "image_concurrent_captures",
+    "image_scope_selected_keywords",
+    "image_scope_custom_keywords",
 ]
 
 PROXY_PROTOCOL_OPTIONS = ["None", "http", "https", "socks4", "socks5"]
@@ -385,6 +391,22 @@ WEB_ENVIRONMENT_PRESETS = {
 WEB_ENVIRONMENT_PRESET_LABELS = [entry["label"] for entry in WEB_ENVIRONMENT_PRESETS.values()]
 WEB_LOCALE_OPTIONS = ["default", "en-CA", "en-US", "en-GB", "fr-CA", "fr-FR", "de-DE", "es-ES", "ja-JP"]
 WEB_TIMEZONE_OPTIONS = ["default", "America/Toronto", "America/Vancouver", "America/New_York", "America/Los_Angeles", "Europe/London", "Europe/Paris", "Asia/Tokyo", "UTC"]
+IMAGE_SCOPE_COMMON_KEYWORDS = [
+    "posts",
+    "stories",
+    "reels",
+    "highlights",
+    "avatar",
+    "background",
+    "timeline",
+    "profile",
+    "videos",
+    "images",
+    "albums",
+    "tagged",
+    "likes",
+    "saved",
+]
 
 APP_SETTINGS_DEFAULTS = {
     "delete_cookies_on_exit": False,
@@ -845,7 +867,7 @@ case_browser_media_probe_semaphore = threading.BoundedSemaphore(CASE_BROWSER_MED
 
 OUTPUT_LOG_ENGINE_LABELS = {
     "yt-dlp": "Audio/Video",
-    "gallery-dl": "Image",
+    "gallery-dl": "Gallery/Profile",
     "web-capture": "Webpage",
 }
 OUTPUT_LOG_ENGINE_ALIASES = {
@@ -855,11 +877,13 @@ OUTPUT_LOG_ENGINE_ALIASES = {
     "audio video": "yt-dlp",
     "gallery-dl": "gallery-dl",
     "image": "gallery-dl",
+    "gallery/profile": "gallery-dl",
+    "gallery profile": "gallery-dl",
     "web-capture": "web-capture",
     "webpage": "web-capture",
     "web": "web-capture",
 }
-OUTPUT_LOG_VIEW_OPTIONS = ["Audio/Video", "Image", "Webpage", "All Engines"]
+OUTPUT_LOG_VIEW_OPTIONS = ["Audio/Video", "Gallery/Profile", "Webpage", "All Engines"]
 engine_log_buffers = {engine: deque() for engine in OUTPUT_LOG_ENGINE_LABELS}
 engine_log_buffer_chars = {engine: 0 for engine in OUTPUT_LOG_ENGINE_LABELS}
 all_engine_log_records = deque()
@@ -1324,7 +1348,7 @@ def parse_delimited_file_paths(raw):
 
     Saved settings from earlier builds may contain one path, semicolon-separated
     paths, or newline-separated paths. Keeping this in one helper prevents the
-    Audio/Video and Image Capture tabs from drifting apart again.
+    Audio/Video and Gallery/Profile Capture tabs from drifting apart again.
     """
     raw = str(raw or "").strip()
     if not raw:
@@ -3422,7 +3446,8 @@ def _summary_enabled(value):
 
 def _image_capture_mode_label(value):
     return {
-        "media": "Download images/files and selected metadata",
+        "media": "Media + selected metadata",
+        "media_only": "Media only",
         "metadata_only": "Metadata/artifacts only",
     }.get(str(value), str(value or ""))
 
@@ -3437,18 +3462,22 @@ def _image_archive_mode_label(value):
 
 def build_image_case_summary_text(exit_code, submitted_url_count, paths, versions, counts, settings=None):
     settings = settings if isinstance(settings, dict) else {}
+    capture_mode = str(settings.get("image_capture_mode", DEFAULTS["image_capture_mode"]) or DEFAULTS["image_capture_mode"]).lower()
     metadata_outputs = []
-    if settings.get("image_write_metadata"):
-        metadata_outputs.append("metadata")
-    if settings.get("image_write_info_json"):
-        metadata_outputs.append("info JSON")
-    if settings.get("image_write_tags"):
-        metadata_outputs.append("tags")
-    metadata_text = ", ".join(metadata_outputs) if metadata_outputs else "none"
+    if capture_mode == "media_only":
+        metadata_text = "disabled by Media only mode"
+    else:
+        if settings.get("image_write_metadata"):
+            metadata_outputs.append("metadata")
+        if settings.get("image_write_info_json"):
+            metadata_outputs.append("info JSON")
+        if settings.get("image_write_tags"):
+            metadata_outputs.append("tags")
+        metadata_text = ", ".join(metadata_outputs) if metadata_outputs else "none"
     max_items = settings.get("image_max_items") if settings.get("image_max_items_enabled") else "disabled"
     item_range = settings.get("image_item_range") if settings.get("image_item_range_enabled") else "disabled"
     lines = [
-        "WAVI Capture GUI for OSINT - Image Case Summary",
+        "WAVI Capture GUI for OSINT - Gallery/Profile Case Summary",
         "",
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"App version: {APP_VERSION}",
@@ -3490,6 +3519,7 @@ def build_image_case_summary_text(exit_code, submitted_url_count, paths, version
         f"  Retries: {_summary_setting(settings, 'image_retries', image_retries_var.get())}",
         f"  Timeout: {_summary_setting(settings, 'image_timeout', image_timeout_var.get())} seconds",
         f"  Concurrent captures: {_summary_setting(settings, 'image_concurrent_captures', image_concurrent_captures_var.get())}",
+        f"  Scope include keywords: {get_image_scope_keywords_csv_from_settings(settings) or 'none'}",
         f"  Cookies file: {_summary_enabled(_summary_setting(settings, 'image_use_cookies_file', image_use_cookies_file_var.get()))}",
         f"  Proxy: {settings.get('_runtime_proxy_summary', get_proxy_status_summary())}",
         f"  VPN check: {_summary_enabled(settings.get('_runtime_vpn_check_enabled', check_vpn_var.get()))}",
@@ -3609,7 +3639,7 @@ def copy_image_case_summary():
         last_successful_image_case_summary,
         label="Image case summary",
         log_func=image_append_log,
-        empty_message="No successful Image Capture case summary is available yet.",
+        empty_message="No successful Gallery/Profile Capture case summary is available yet.",
     )
 
 
@@ -3624,7 +3654,7 @@ def copy_web_case_summary():
 
 CASE_SUMMARY_ENGINE_LABELS = {
     "yt-dlp": "Audio/Video",
-    "gallery-dl": "Image Capture",
+    "gallery-dl": IMAGE_CAPTURE_TAB_LABEL,
     "web-capture": "Webpage Capture",
 }
 
@@ -4444,7 +4474,7 @@ def save_urls_to_input_file():
             pass
 
     path = filedialog.asksaveasfilename(
-        title="Save URLs to file",
+        title="Save Audio/Video Capture URLs As...",
         defaultextension=".txt",
         initialdir=initial_dir,
         initialfile=initial_file,
@@ -5476,25 +5506,97 @@ def get_enabled_capture_dates_from_settings(settings):
 
 
 def get_interrupted_resume_index(job):
+    """Legacy contiguous-prefix fallback for jobs without per-URL index state."""
     try:
         completed = int(job.get("completed_urls", 0) or 0)
     except Exception:
         completed = 0
-
     return max(0, min(completed, len(job.get("urls", []) or [])))
+
+
+def _bounded_queue_index_set(values, total):
+    try:
+        total = max(0, int(total or 0))
+    except Exception:
+        total = 0
+    return {
+        index for index in _normalize_queue_index_set(values)
+        if not total or index <= total
+    }
+
+
+def get_queue_job_completed_url_indexes(job, include_legacy_prefix=True):
+    total = len(job.get("urls", []) or [])
+    indexes = _bounded_queue_index_set(job.get("completed_url_indexes", []), total)
+    if include_legacy_prefix and not indexes:
+        legacy_prefix = get_interrupted_resume_index(job)
+        indexes.update(range(1, legacy_prefix + 1))
+    return indexes
+
+
+def get_queue_job_terminal_url_indexes(job):
+    """Return original URL indexes that should not be retried by sparse Continue."""
+    total = len(job.get("urls", []) or [])
+    terminal = get_queue_job_completed_url_indexes(job)
+    if get_job_engine(job) == "web-capture":
+        records = normalize_web_capture_classification_records(
+            job.get("web_capture_classifications", {}),
+            total,
+        )
+        for record in records.values():
+            if str(record.get("classification", "") or "").strip().lower() == "partial":
+                terminal.add(int(record.get("url_index", 0) or 0))
+    return {index for index in terminal if 1 <= index <= total}
+
+
+def get_queue_job_remaining_url_indexes(job):
+    total = len(job.get("urls", []) or [])
+    terminal = get_queue_job_terminal_url_indexes(job)
+    return [index for index in range(1, total + 1) if index not in terminal]
+
+
+def get_queue_job_run_url_indexes(job):
+    urls = list(job.get("urls", []) or [])
+    total = len(urls)
+    if not total:
+        return []
+
+    engine = get_job_engine(job)
+    if engine == "gallery-dl" and job.get("_run_mode") == "continue":
+        return list(range(1, total + 1))
+
+    if "pending_url_indexes" in job:
+        pending = sorted(_bounded_queue_index_set(job.get("pending_url_indexes", []), total))
+        return pending
+
+    if job.get("_run_mode") == "continue":
+        return get_queue_job_remaining_url_indexes(job)
+
+    return list(range(1, total + 1))
 
 
 def get_queue_job_run_urls(job):
     urls = list(job.get("urls", []) or [])
+    return [urls[index - 1] for index in get_queue_job_run_url_indexes(job) if 1 <= index <= len(urls)]
 
-    if job.get("_run_mode") == "continue":
-        engine = str(job.get("engine") or job.get("settings", {}).get("engine") or "yt-dlp").lower()
-        if engine == "gallery-dl":
-            return urls
-        start_index = get_interrupted_resume_index(job)
-        return urls[start_index:]
 
-    return urls
+def map_queue_run_index_to_original(job, run_index):
+    try:
+        local_index = int(run_index)
+    except Exception:
+        return None
+    if local_index <= 0:
+        return None
+
+    mapping = job.get("_run_url_index_map")
+    if not isinstance(mapping, list) or not mapping:
+        mapping = get_queue_job_run_url_indexes(job)
+    if 1 <= local_index <= len(mapping):
+        try:
+            return int(mapping[local_index - 1])
+        except Exception:
+            return None
+    return None
 
 
 def prepare_queue_job_for_restart(job):
@@ -5511,12 +5613,14 @@ def prepare_queue_job_for_restart(job):
     job.pop("failed_url_indexes", None)
     job.pop("web_capture_classifications", None)
     job.pop("web_capture_classification_summary", None)
+    job.pop("pending_url_indexes", None)
     job["_run_mode"] = "restart"
-    job["_resume_base_completed"] = 0
+    job.pop("_run_url_index_map", None)
+    job.pop("_resume_base_completed", None)
 
 
 def prepare_queue_job_for_continue(job):
-    engine = str(job.get("engine") or job.get("settings", {}).get("engine") or "yt-dlp").lower()
+    engine = get_job_engine(job)
     urls = list(job.get("urls", []) or [])
 
     if engine == "gallery-dl":
@@ -5534,17 +5638,42 @@ def prepare_queue_job_for_continue(job):
         job["resume_strategy"] = "archive-backed retry"
         job.pop("completed_url_indexes", None)
         job.pop("failed_url_indexes", None)
+        job.pop("pending_url_indexes", None)
         job["_run_mode"] = "continue"
-        job["_resume_base_completed"] = 0
+        job.pop("_run_url_index_map", None)
+        job.pop("_resume_base_completed", None)
         return True
 
-    resume_index = get_interrupted_resume_index(job)
+    total = len(urls)
+    completed_indexes = get_queue_job_completed_url_indexes(job)
+    terminal_indexes = get_queue_job_terminal_url_indexes(job)
+    remaining_indexes = [index for index in range(1, total + 1) if index not in terminal_indexes]
 
-    if resume_index >= len(urls):
-        job["status"] = "completed"
-        job["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        job["exit_code"] = "0"
+    if not remaining_indexes:
+        job.pop("pending_url_indexes", None)
+        job.pop("_run_url_index_map", None)
+        job.pop("_run_mode", None)
+        has_terminal_partial = False
+        if engine == "web-capture":
+            records = normalize_web_capture_classification_records(job.get("web_capture_classifications", {}), total)
+            has_terminal_partial = any(
+                str(record.get("classification", "") or "").strip().lower() == "partial"
+                for record in records.values()
+            )
+        if not has_terminal_partial:
+            job["status"] = "completed"
+            job["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            job["exit_code"] = "0"
+        else:
+            job["interrupted_reason"] = (
+                "No retryable URLs remain. Partial Webpage results are terminal for recovery "
+                "but remain classified as Partial."
+            )
+        job["completed_urls"] = len(completed_indexes)
         return False
+
+    failed_indexes = _bounded_queue_index_set(job.get("failed_url_indexes", []), total)
+    failed_indexes.difference_update(terminal_indexes)
 
     job["settings_schema_version"] = SETTINGS_SCHEMA_VERSION
     job["status"] = "pending"
@@ -5552,11 +5681,14 @@ def prepare_queue_job_for_continue(job):
     job["finished"] = ""
     job["exit_code"] = ""
     job["summary"] = ""
-    job["resume_strategy"] = "url-level continue"
-    job.pop("completed_url_indexes", None)
-    job.pop("failed_url_indexes", None)
+    job["resume_strategy"] = "sparse-url continue"
+    job["completed_url_indexes"] = sorted(completed_indexes)
+    job["failed_url_indexes"] = sorted(failed_indexes)
+    job["completed_urls"] = len(completed_indexes)
+    job["pending_url_indexes"] = remaining_indexes
     job["_run_mode"] = "continue"
-    job["_resume_base_completed"] = resume_index
+    job["_run_url_index_map"] = list(remaining_indexes)
+    job.pop("_resume_base_completed", None)
     return True
 
 
@@ -6171,6 +6303,8 @@ def get_settings_dict():
         "image_retries": normalize_positive_int_string(image_retries_var.get(), DEFAULTS["image_retries"]),
         "image_timeout": normalize_positive_int_string(image_timeout_var.get(), DEFAULTS["image_timeout"]),
         "image_concurrent_captures": str(image_concurrent_captures_var.get()).strip() or DEFAULTS["image_concurrent_captures"],
+        "image_scope_selected_keywords": get_image_scope_selected_keywords_csv(),
+        "image_scope_custom_keywords": get_image_scope_custom_keywords_csv(),
         "web_script_path": web_script_path_var.get().strip(),
         "web_deno_path": web_deno_path_var.get().strip(),
         "web_browser_path": web_browser_path_var.get().strip(),
@@ -6443,6 +6577,9 @@ def apply_settings_dict(settings):
     image_concurrent_captures_var.set(str(settings.get("image_concurrent_captures", DEFAULTS["image_concurrent_captures"]) or DEFAULTS["image_concurrent_captures"]))
     if image_concurrent_captures_var.get() not in {"1", "2", "3", "4"}:
         image_concurrent_captures_var.set(DEFAULTS["image_concurrent_captures"])
+    image_scope_selected_keywords_var.set(settings.get("image_scope_selected_keywords", DEFAULTS["image_scope_selected_keywords"]))
+    image_scope_custom_keywords_var.set(settings.get("image_scope_custom_keywords", DEFAULTS["image_scope_custom_keywords"]))
+    sync_image_scope_common_keyword_vars_from_selected()
 
     loaded_web_script_path = str(settings.get("web_script_path", DEFAULTS["web_script_path"]) or DEFAULTS["web_script_path"])
     if os.path.basename(loaded_web_script_path).lower() == "script-webcapture.ts":
@@ -6824,6 +6961,8 @@ def get_active_profile_name(store=None):
 
 def normalize_capture_tab_label(value):
     label = str(value or "").strip()
+    if label == LEGACY_IMAGE_CAPTURE_TAB_LABEL:
+        return IMAGE_CAPTURE_TAB_LABEL
     if label in CAPTURE_TAB_LABELS:
         return label
     return APP_SETTINGS_DEFAULTS["last_selected_tab"]
@@ -7856,7 +7995,7 @@ def open_domain_presets_window():
         main_frame,
         text=(
             "Checked presets apply automatically when one or more of their match domains are detected by "
-            "Audio/Video Capture, Image Capture, or queue job creation. Presets store capture/advanced options "
+            "Audio/Video Capture, Gallery/Profile Capture, or queue job creation. Presets store capture/advanced options "
             "for both capture tabs."
         ),
         wraplength=680,
@@ -8315,11 +8454,11 @@ def open_domain_presets_window():
 
         save_domain_presets(show_popup=False)
         refresh_list()
-        append_log(f"\nSaved current Audio/Video and Image Capture options as domain preset: {preset_name}\n")
+        append_log(f"\nSaved current Audio/Video and Gallery/Profile Capture options as domain preset: {preset_name}\n")
         append_log(f"Match domains: {', '.join(match_domains)}\n")
         messagebox.showinfo(
             "Domain preset saved",
-            "Saved current Audio/Video and Image Capture options for:\n\n"
+            "Saved current Audio/Video and Gallery/Profile Capture options for:\n\n"
             f"{preset_name}\n\nMatch domains:\n{', '.join(match_domains)}",
             parent=domain_preset_window,
         )
@@ -8879,7 +9018,7 @@ def configure_capture_tab_row_weights():
 
 
 def configure_image_capture_tab_row_weights():
-    """Keep Image Capture tab vertical sizing assigned to the intended rows."""
+    """Keep Gallery/Profile Capture tab vertical sizing assigned to the intended rows."""
     try:
         image_capture_tab.rowconfigure(9, weight=0, minsize=0)
         image_capture_tab.rowconfigure(10, weight=0, minsize=0)
@@ -9452,13 +9591,13 @@ def delete_selected_cookies_file_on_exit():
 
     cookie_targets = [
         ("Audio/Video Capture", bool(use_cookies_file_var.get()), cookies_file_var.get().strip()),
-        ("Image Capture", bool(image_use_cookies_file_var.get()), image_cookies_file_var.get().strip()),
+        (IMAGE_CAPTURE_TAB_LABEL, bool(image_use_cookies_file_var.get()), image_cookies_file_var.get().strip()),
         ("Webpage Capture", bool(web_use_cookies_file_var.get()), web_cookies_file_var.get().strip()),
     ]
 
     enabled_targets = [(label, path) for label, enabled, path in cookie_targets if enabled]
     if not enabled_targets:
-        append_log("\nCookies file use is disabled for Audio/Video Capture, Image Capture, and Webpage Capture. Delete cookies on exit was skipped.\n")
+        append_log("\nCookies file use is disabled for Audio/Video Capture, Gallery/Profile Capture, and Webpage Capture. Delete cookies on exit was skipped.\n")
         return
 
     seen = set()
@@ -9562,6 +9701,8 @@ def normalize_settings_store(raw):
         store["profiles"][DEFAULT_PROFILE_NAME] = make_default_profile_settings()
 
     store["app_settings"] = raw.get("app_settings", {}) if isinstance(raw.get("app_settings", {}), dict) else {}
+    if str(store["app_settings"].get("last_selected_tab", "") or "").strip() == LEGACY_IMAGE_CAPTURE_TAB_LABEL:
+        store["app_settings"]["last_selected_tab"] = IMAGE_CAPTURE_TAB_LABEL
     if source_version < 43:
         saved_geometry = normalize_saved_window_geometry(store["app_settings"].get("window_geometry", ""))
         if saved_geometry is not None:
@@ -10583,7 +10724,7 @@ def get_active_direct_jobs():
             "engine": "gallery-dl",
             "status": "running",
             "domains": list(active_image_direct_domains),
-            "resolved_case_name": active_image_direct_case_name or "running direct image capture",
+            "resolved_case_name": active_image_direct_case_name or "running direct Gallery/Profile capture",
             "allow_domain_collision": False,
         })
 
@@ -10947,6 +11088,7 @@ def serialize_queue_job(job):
         "resume_strategy",
         "completed_url_indexes",
         "failed_url_indexes",
+        "pending_url_indexes",
         "web_capture_classifications",
     ]
 
@@ -11010,6 +11152,14 @@ def normalize_loaded_queue_job(raw_job):
             len(clean_urls),
         )
 
+    completed_url_indexes = sorted(_bounded_queue_index_set(raw_job.get("completed_url_indexes", []), len(clean_urls)))
+    if not completed_url_indexes and completed_urls:
+        completed_url_indexes = list(range(1, completed_urls + 1))
+    failed_url_indexes = sorted(_bounded_queue_index_set(raw_job.get("failed_url_indexes", []), len(clean_urls)))
+    failed_url_indexes = [index for index in failed_url_indexes if index not in set(completed_url_indexes)]
+    pending_url_indexes = sorted(_bounded_queue_index_set(raw_job.get("pending_url_indexes", []), len(clean_urls)))
+    completed_urls = len(completed_url_indexes)
+
     job = {
         "job_id": str(raw_job.get("job_id") or make_job_id()),
         "engine": engine,
@@ -11038,11 +11188,14 @@ def normalize_loaded_queue_job(raw_job):
         "direct_capture": bool(raw_job.get("direct_capture", False)),
         "recovery_manifest": str(raw_job.get("recovery_manifest", "") or ""),
         "resume_strategy": str(raw_job.get("resume_strategy", "") or ""),
-        "completed_url_indexes": list(raw_job.get("completed_url_indexes", []) or []),
-        "failed_url_indexes": list(raw_job.get("failed_url_indexes", []) or []),
+        "completed_url_indexes": completed_url_indexes,
+        "failed_url_indexes": failed_url_indexes,
         "web_capture_classifications": web_capture_classifications,
         "web_capture_classification_summary": summarize_web_capture_classifications(web_capture_classifications),
     }
+
+    if "pending_url_indexes" in raw_job and pending_url_indexes:
+        job["pending_url_indexes"] = pending_url_indexes
 
     if raw_status == "running":
         now_text = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -11789,23 +11942,23 @@ def describe_image_url_source_problem(action_label="this action"):
 
     if existing_paths:
         return (
-            f"No Image Capture URLs are available for {action_label}.\n\n"
-            "The Image Capture URL box had no extractable http/https URLs, and the selected Input File entry or entries "
+            f"No Gallery/Profile Capture URLs are available for {action_label}.\n\n"
+            "The Gallery/Profile Capture URL box had no extractable http/https URLs, and the selected Input File entry or entries "
             "were readable but no extractable http/https URLs were found.\n\n"
             f"Input File(s):\n{describe_input_file_paths(existing_paths)}"
         )
 
     if input_paths:
         return (
-            f"No Image Capture URLs are available for {action_label}.\n\n"
-            "The Image Capture URL box had no extractable http/https URLs, and the selected Input File entry or entries "
+            f"No Gallery/Profile Capture URLs are available for {action_label}.\n\n"
+            "The Gallery/Profile Capture URL box had no extractable http/https URLs, and the selected Input File entry or entries "
             "are missing or invalid.\n\n"
             f"Input File(s):\n{describe_input_file_paths(input_paths)}"
         )
 
     return (
-        f"No Image Capture URLs are available for {action_label}.\n\n"
-        "Add URLs to the Image Capture URL box or select one or more Input File(s) containing http:// or https:// URLs."
+        f"No Gallery/Profile Capture URLs are available for {action_label}.\n\n"
+        "Add URLs to the Gallery/Profile Capture URL box or select one or more Input File(s) containing http:// or https:// URLs."
     )
 
 
@@ -11815,7 +11968,7 @@ def summarize_current_job_source_for_dialog(kind):
             urls = get_image_url_list()
             input_paths = parse_image_input_file_paths()
             existing_paths = get_existing_image_input_file_paths()
-            label = "Image Capture"
+            label = IMAGE_CAPTURE_TAB_LABEL
         elif kind == "web":
             urls = get_web_url_list()
             input_paths = parse_web_input_file_paths()
@@ -11933,10 +12086,10 @@ def open_add_current_as_job_dialog():
             try:
                 urls = get_image_url_list()
                 if not urls:
-                    raise ValueError(describe_image_url_source_problem("adding the current Image Capture to the queue"))
+                    raise ValueError(describe_image_url_source_problem("adding the current Gallery/Profile Capture to the queue"))
                 result["added"] = add_image_urls_to_queue_as_job(urls)
             except Exception as e:
-                messagebox.showerror("Add Image Capture job failed", str(e), parent=dialog)
+                messagebox.showerror("Add Gallery/Profile Capture job failed", str(e), parent=dialog)
                 return
         elif selected == "web":
             try:
@@ -12875,26 +13028,31 @@ def continue_selected_interrupted_jobs():
     selected_jobs = [
         job
         for job in job_queue
-        if bool(job.get("checked", False)) and job.get("status") == "interrupted"
+        if bool(job.get("checked", False)) and job.get("status") in {"interrupted", "failed"}
     ]
 
     if not selected_jobs:
-        messagebox.showinfo("No selected interrupted jobs", "Checkmark one or more interrupted jobs first.")
+        messagebox.showinfo("No selected recoverable jobs", "Checkmark one or more failed or interrupted jobs first.")
         return
 
+    runnable_ids = []
     for job in selected_jobs:
-        prepare_queue_job_for_continue(job)
+        if prepare_queue_job_for_continue(job):
+            runnable_ids.append(job.get("job_id"))
 
     save_job_queue_state()
     refresh_job_queue_window()
-    start_job_queue(selected_only=True)
+    if not runnable_ids:
+        messagebox.showinfo("No retryable URLs", "The selected job(s) had no unresolved URLs to continue.")
+        return
+    start_job_queue(job_ids=runnable_ids, scope_label="selected recoverable")
 
 
 def continue_highlighted_interrupted_jobs():
-    highlighted_jobs = [job for job in get_highlighted_queue_jobs() if job.get("status") == "interrupted"]
+    highlighted_jobs = [job for job in get_highlighted_queue_jobs() if job.get("status") in {"interrupted", "failed"}]
 
     if not highlighted_jobs:
-        messagebox.showinfo("No highlighted interrupted jobs", "Highlight one or more interrupted queue jobs first.")
+        messagebox.showinfo("No highlighted recoverable jobs", "Highlight one or more failed or interrupted queue jobs first.")
         return
 
     runnable_ids = []
@@ -12906,10 +13064,10 @@ def continue_highlighted_interrupted_jobs():
     refresh_job_queue_window()
 
     if not runnable_ids:
-        messagebox.showinfo("No remaining URLs", "The highlighted interrupted job(s) had no remaining URLs to continue.")
+        messagebox.showinfo("No retryable URLs", "The highlighted job(s) had no unresolved URLs to continue.")
         return
 
-    start_job_queue(job_ids=runnable_ids, scope_label="highlighted")
+    start_job_queue(job_ids=runnable_ids, scope_label="highlighted recoverable")
 
 
 def job_is_active_queue_execution(job):
@@ -13128,6 +13286,7 @@ def write_job_recovery_manifest(job, event="state"):
             "resume_strategy": job.get("resume_strategy", ""),
             "urls": list(job.get("urls", []) or []),
             "submitted_urls": get_queue_job_run_urls(job),
+            "submitted_url_indexes": list(job.get("_run_url_index_map") or get_queue_job_run_url_indexes(job)),
             "completed_urls": int(job.get("completed_urls", 0) or 0),
             "completed_url_indexes": list(job.get("completed_url_indexes", []) or []),
             "failed_url_indexes": list(job.get("failed_url_indexes", []) or []),
@@ -13179,7 +13338,7 @@ def create_direct_recovery_job(engine, settings, urls, resolved_case_name, case_
         "allow_domain_collision": False,
         "checked": False,
         "direct_capture": True,
-        "resume_strategy": "archive-backed retry" if engine == "gallery-dl" else "url-level continue",
+        "resume_strategy": "archive-backed retry" if engine == "gallery-dl" else "sparse-url continue",
         "interrupted_reason": "",
         "interrupted_at": "",
     }
@@ -13218,30 +13377,29 @@ def finish_direct_recovery_job(job_id, exit_code, summary=""):
 
 def mark_queue_job_url_complete(job_id, url_index=None):
     job = get_queue_job_by_id(job_id)
-
     if not job:
         return
 
-    current = int(job.get("completed_urls", 0) or 0)
-    total = len(job.get("urls", []))
-    resume_base = int(job.get("_resume_base_completed", 0) or 0)
+    total = len(job.get("urls", []) or [])
+    absolute_index = map_queue_run_index_to_original(job, url_index) if url_index is not None else None
+    completed_indexes = get_queue_job_completed_url_indexes(job)
+    failed_indexes = _bounded_queue_index_set(job.get("failed_url_indexes", []), total)
 
-    if url_index is not None:
-        try:
-            absolute_index = resume_base + int(url_index)
-            completed_indexes = _normalize_queue_index_set(job.get("completed_url_indexes", []))
-            completed_indexes.add(absolute_index)
-            job["completed_url_indexes"] = sorted(completed_indexes)
-            current = max(current, _queue_completed_prefix_from_indexes(completed_indexes, total))
-        except Exception:
-            current += 1
-    else:
-        current += 1
+    if absolute_index is not None and 1 <= absolute_index <= total:
+        completed_indexes.add(absolute_index)
+        failed_indexes.discard(absolute_index)
+    elif total:
+        # Marker indexes are expected from all WAVI capture wrappers. Keep a
+        # conservative fallback for older/custom wrappers that omit them.
+        for candidate in range(1, total + 1):
+            if candidate not in completed_indexes:
+                completed_indexes.add(candidate)
+                failed_indexes.discard(candidate)
+                break
 
-    if total:
-        current = min(current, total)
-
-    job["completed_urls"] = current
+    job["completed_url_indexes"] = sorted(completed_indexes)
+    job["failed_url_indexes"] = sorted(failed_indexes)
+    job["completed_urls"] = len(completed_indexes)
     write_job_recovery_manifest(job, "url_complete")
     save_job_queue_state()
     update_job_queue_progress()
@@ -13250,20 +13408,30 @@ def mark_queue_job_url_complete(job_id, url_index=None):
 
 def mark_queue_job_url_incomplete(job_id, url_index=None):
     job = get_queue_job_by_id(job_id)
-
     if not job:
         return
 
-    if url_index is not None:
-        try:
-            resume_base = int(job.get("_resume_base_completed", 0) or 0)
-            absolute_index = resume_base + int(url_index)
-            failed_indexes = _normalize_queue_index_set(job.get("failed_url_indexes", []))
-            failed_indexes.add(absolute_index)
-            job["failed_url_indexes"] = sorted(failed_indexes)
-        except Exception:
-            pass
+    total = len(job.get("urls", []) or [])
+    absolute_index = map_queue_run_index_to_original(job, url_index) if url_index is not None else None
+    completed_indexes = get_queue_job_completed_url_indexes(job)
+    failed_indexes = _bounded_queue_index_set(job.get("failed_url_indexes", []), total)
 
+    if absolute_index is not None and 1 <= absolute_index <= total:
+        # A Webpage Partial classification is terminal for recovery even though
+        # the wrapper also emits an INCOMPLETE marker for run exit truth.
+        partial_terminal = False
+        if get_job_engine(job) == "web-capture":
+            record = (job.get("web_capture_classifications", {}) or {}).get(str(absolute_index), {})
+            partial_terminal = str(record.get("classification", "") or "").strip().lower() == "partial"
+        if partial_terminal:
+            failed_indexes.discard(absolute_index)
+        else:
+            failed_indexes.add(absolute_index)
+            completed_indexes.discard(absolute_index)
+
+    job["completed_url_indexes"] = sorted(completed_indexes)
+    job["failed_url_indexes"] = sorted(failed_indexes)
+    job["completed_urls"] = len(completed_indexes)
     write_job_recovery_manifest(job, "url_incomplete")
     save_job_queue_state()
     update_job_queue_progress()
@@ -13274,21 +13442,25 @@ def mark_queue_job_web_capture_classification(job_id, record):
     job = get_queue_job_by_id(job_id)
     if not job or not isinstance(record, dict):
         return
-    try:
-        resume_base = int(job.get("_resume_base_completed", 0) or 0)
-        absolute_index = resume_base + int(record.get("url_index", 0) or 0)
-    except Exception:
+
+    absolute_index = map_queue_run_index_to_original(job, record.get("url_index"))
+    total = len(job.get("urls", []) or [])
+    if absolute_index is None or not (1 <= absolute_index <= total):
         return
-    if absolute_index <= 0:
-        return
+
     classification = str(record.get("classification", "")).strip().lower()
     if classification not in {"complete", "complete_with_warnings", "partial", "failed"}:
         return
+
+    translated_record = dict(record)
+    translated_record["url_index"] = absolute_index
+    translated_record["url_total"] = total
     record_web_capture_url_history(
-        record,
+        translated_record,
         get_job_output_root_for_recovery(job),
         job.get("resolved_case_name", ""),
     )
+
     records = job.get("web_capture_classifications")
     if not isinstance(records, dict):
         records = {}
@@ -13298,9 +13470,17 @@ def mark_queue_job_web_capture_classification(job_id, record):
         "url": str(record.get("url", "") or ""),
         "recorded_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
-    records = normalize_web_capture_classification_records(records, len(job.get("urls", []) or []))
+    records = normalize_web_capture_classification_records(records, total)
     job["web_capture_classifications"] = records
     job["web_capture_classification_summary"] = summarize_web_capture_classifications(records)
+
+    failed_indexes = _bounded_queue_index_set(job.get("failed_url_indexes", []), total)
+    if classification in {"complete", "complete_with_warnings", "partial"}:
+        failed_indexes.discard(absolute_index)
+    elif classification == "failed":
+        failed_indexes.add(absolute_index)
+    job["failed_url_indexes"] = sorted(failed_indexes)
+
     write_job_recovery_manifest(job, "web_capture_classification")
     save_job_queue_state()
     update_job_queue_progress()
@@ -13359,8 +13539,9 @@ def run_queue_job(job):
                 safe_after(0, run_next_queue_job)
                 return
 
+        run_url_indexes = get_queue_job_run_url_indexes(job)
+        job["_run_url_index_map"] = list(run_url_indexes)
         run_urls = get_queue_job_run_urls(job)
-        resume_base_completed = int(job.get("_resume_base_completed", 0) or 0)
         job["_runtime_summary_settings"] = get_runtime_summary_settings(job.get("settings", {}))
         cmd = build_powershell_command_for_job(job)
         job["_av_universal_archive_active"] = bool(
@@ -13385,10 +13566,12 @@ def run_queue_job(job):
         job["started"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         job["finished"] = ""
         job["exit_code"] = ""
-        if job.get("_run_mode") == "continue":
-            job["completed_urls"] = resume_base_completed
+        if job.get("_run_mode") == "continue" or "pending_url_indexes" in job:
+            job["completed_urls"] = len(get_queue_job_completed_url_indexes(job))
         else:
             job["completed_urls"] = 0
+            job.pop("completed_url_indexes", None)
+            job.pop("failed_url_indexes", None)
             if get_job_engine(job) == "web-capture":
                 job["web_capture_classifications"] = {}
                 job["web_capture_classification_summary"] = {}
@@ -13407,9 +13590,10 @@ def run_queue_job(job):
         job_log(f"Job ID: {job['job_id']}\n")
         job_log(f"Case: {job.get('resolved_case_name', '')}\n")
         if job.get("_run_mode") == "continue" and get_job_engine(job) == "gallery-dl":
-            job_log(f"URLs this run: {submitted_url_count} (archive-backed retry for Image Capture)\n")
-        elif job.get("_run_mode") == "continue":
-            job_log(f"URLs this run: {submitted_url_count} (continuing from URL {resume_base_completed + 1})\n")
+            job_log(f"URLs this run: {submitted_url_count} (archive-backed retry for Gallery/Profile Capture)\n")
+        elif job.get("_run_mode") == "continue" or "pending_url_indexes" in job:
+            index_text = ", ".join(str(index) for index in run_url_indexes)
+            job_log(f"URLs this run: {submitted_url_count} (sparse continue; original URL indexes: {index_text})\n")
         else:
             job_log(f"URLs: {submitted_url_count}\n")
         if job.get("applied_domain_presets"):
@@ -13602,14 +13786,16 @@ def finish_queue_job(job_id, exit_code, submitted_url_count, universal_skip_reco
         update_case_summary_action_states(engine)
 
     write_job_recovery_manifest(job, "queue_finished")
-    save_job_queue_state(immediate=True)
 
+    job.pop("pending_url_indexes", None)
     job.pop("_run_mode", None)
+    job.pop("_run_url_index_map", None)
     job.pop("_resume_base_completed", None)
     job.pop("_interruption_requested", None)
     job.pop("_queue_execution_active", None)
     job.pop("_av_universal_archive_active", None)
     job.pop("_runtime_summary_settings", None)
+    save_job_queue_state(immediate=True)
 
     refresh_job_queue_window()
     schedule_case_browser_autoload(
@@ -13854,7 +14040,7 @@ def open_job_queue(select_tab=True):
         job = get_selected_queue_job()
         highlighted_jobs = get_highlighted_queue_jobs()
         highlighted_runnable = any(item.get("status") in {"pending", "interrupted"} for item in highlighted_jobs)
-        highlighted_interrupted = any(item.get("status") == "interrupted" for item in highlighted_jobs)
+        highlighted_recoverable = any(item.get("status") in {"interrupted", "failed"} for item in highlighted_jobs)
         highlighted_restartable = any(item.get("status") != "running" for item in highlighted_jobs)
 
         menu = tk.Menu(root, tearoff=0)
@@ -13900,9 +14086,9 @@ def open_job_queue(select_tab=True):
         if not highlighted_runnable:
             menu.entryconfig("Start Highlighted", state="disabled")
 
-        menu.add_command(label="Continue Highlighted Interrupted", command=continue_highlighted_interrupted_jobs)
-        if not highlighted_interrupted:
-            menu.entryconfig("Continue Highlighted Interrupted", state="disabled")
+        menu.add_command(label="Continue Highlighted Failed/Interrupted", command=continue_highlighted_interrupted_jobs)
+        if not highlighted_recoverable:
+            menu.entryconfig("Continue Highlighted Failed/Interrupted", state="disabled")
 
         menu.add_command(label="Restart Highlighted", command=restart_highlighted_queue_jobs)
         if not highlighted_restartable:
@@ -13913,9 +14099,9 @@ def open_job_queue(select_tab=True):
         if not any(item.get("status") in {"pending", "interrupted"} and bool(item.get("checked", False)) for item in job_queue):
             menu.entryconfig("Start Checked", state="disabled")
 
-        menu.add_command(label="Continue Checked Interrupted", command=continue_selected_interrupted_jobs)
-        if not any(item.get("status") == "interrupted" and bool(item.get("checked", False)) for item in job_queue):
-            menu.entryconfig("Continue Checked Interrupted", state="disabled")
+        menu.add_command(label="Continue Checked Failed/Interrupted", command=continue_selected_interrupted_jobs)
+        if not any(item.get("status") in {"interrupted", "failed"} and bool(item.get("checked", False)) for item in job_queue):
+            menu.entryconfig("Continue Checked Failed/Interrupted", state="disabled")
 
         menu.add_command(label="Restart Checked", command=restart_selected_queue_jobs)
         if not any(item.get("status") != "running" and bool(item.get("checked", False)) for item in job_queue):
@@ -14373,7 +14559,7 @@ def fetch_latest_app_release():
 
 def open_about_dialog():
     dialog = tk.Toplevel(root)
-    dialog.title("About Webpage/Audio/Video/Image Capture GUI for OSINT")
+    dialog.title("About Webpage/Audio/Video/Gallery/Profile Capture GUI for OSINT")
     dialog.resizable(False, False)
     dialog.transient(root)
     dialog.grab_set()
@@ -14383,7 +14569,7 @@ def open_about_dialog():
 
     ttk.Label(
         frame,
-        text="Webpage/Audio/Video/Image Capture GUI for OSINT",
+        text="Webpage/Audio/Video/Gallery/Profile Capture GUI for OSINT",
         font=("Segoe UI", 12, "bold"),
     ).grid(row=0, column=0, sticky="w", pady=(0, 6))
 
@@ -14395,7 +14581,7 @@ def open_about_dialog():
     ttk.Label(
         frame,
         text=(
-            "A portable Windows GUI for running approved webpage, audio, video, and image capture workflows "
+            "A portable Windows GUI for running approved webpage, audio, video, and gallery/profile capture workflows "
             "for OSINT-style collection and review.\n\n"
             "This app does not bundle yt-dlp, gallery-dl, FFmpeg, Deno, Chromium browsers, or other binaries. "
             "Use official, signed, organization-approved binaries where required."
@@ -15177,7 +15363,7 @@ def update_gallerydl_direct(update_target):
         "\nStarting direct gallery-dl update...\n"
         f"gallery-dl path: {gallery_path}\n"
         f"Update target: {update_target}\n"
-        "Command source: GUI direct subprocess, not the PowerShell image capture script.\n\n"
+        "Command source: GUI direct subprocess, not the PowerShell Gallery/Profile capture script.\n\n"
     )
 
     gallery_dl_version_status_var.set(f"gallery-dl: updating to {update_target}...")
@@ -15213,7 +15399,7 @@ def update_gallerydl_direct(update_target):
                     0,
                     messagebox.showwarning,
                     "gallery-dl update failed",
-                    f"gallery-dl exited with code {exit_code}. Review the Image Capture output log. "
+                    f"gallery-dl exited with code {exit_code}. Review the Gallery/Profile Capture output log. "
                     "ASR or endpoint protection may have blocked it.",
                 )
                 safe_after(0, check_gallery_dl_version)
@@ -15603,7 +15789,11 @@ def collapse_capture_tab_options(tab_label, save=False):
             "hide_pacing_options_panel",
             "hide_advanced_options_panel",
         ),
-        "Image Capture": (
+        IMAGE_CAPTURE_TAB_LABEL: (
+            "hide_image_capture_options_panel",
+            "hide_image_advanced_options_panel",
+        ),
+        LEGACY_IMAGE_CAPTURE_TAB_LABEL: (
             "hide_image_capture_options_panel",
             "hide_image_advanced_options_panel",
         ),
@@ -22156,7 +22346,7 @@ def on_close():
                 mark_direct_recovery_job_interrupted(active_image_direct_recovery_job_id, "App closed while direct capture was running.")
             except Exception as e:
                 log_debug_exception("Could not mark Image direct recovery job interrupted during shutdown", e)
-            terminate_process_tree(image_running_process, label="direct Image Capture")
+            terminate_process_tree(image_running_process, label="direct Gallery/Profile Capture")
 
         if direct_web_active:
             try:
@@ -22652,22 +22842,33 @@ def save_web_urls_to_input_file():
     if not content:
         messagebox.showwarning("No URLs", "The Webpage Capture URL box is empty.")
         return
-    path = web_input_file_var.get().strip()
-    if not path:
-        path = filedialog.asksaveasfilename(
-            title="Save Webpage Capture URLs",
-            initialdir=ROOT,
-            initialfile="web-urls.txt",
-            defaultextension=".txt",
-            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-        )
+
+    current_input_file = web_input_file_var.get().strip()
+    initial_dir = ROOT
+    initial_file = "web-urls.txt"
+    if current_input_file:
+        try:
+            current_paths = parse_web_input_file_paths(current_input_file)
+            first_path = current_paths[0] if current_paths else current_input_file
+            initial_dir = os.path.dirname(os.path.abspath(first_path)) or ROOT
+            initial_file = os.path.basename(first_path) or initial_file
+        except Exception:
+            pass
+
+    path = filedialog.asksaveasfilename(
+        title="Save Webpage Capture URLs As...",
+        initialdir=initial_dir,
+        initialfile=initial_file,
+        defaultextension=".txt",
+        filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+    )
     if not path:
         return
     try:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         Path(path).write_text(content + "\n", encoding="utf-8")
         web_input_file_var.set(path)
-        web_append_log(f"\nSaved Webpage Capture URL box to: {path}\n")
+        web_append_log(f"\nSaved Webpage Capture URL box as: {path}\n")
     except Exception as e:
         messagebox.showerror("Save failed", str(e))
 
@@ -24393,7 +24594,7 @@ def add_web_urls_to_queue_as_job(urls=None):
             "allow_domain_collision": False,
             "checked": False,
             "direct_capture": False,
-            "resume_strategy": "url-level continue",
+            "resume_strategy": "sparse-url continue",
         }
         collisions = find_domain_collisions_for_job(job)
         if collisions:
@@ -25005,6 +25206,9 @@ image_item_range_var = tk.StringVar(value=DEFAULTS["image_item_range"])
 image_retries_var = tk.StringVar(value=DEFAULTS["image_retries"])
 image_timeout_var = tk.StringVar(value=DEFAULTS["image_timeout"])
 image_concurrent_captures_var = tk.StringVar(value=DEFAULTS["image_concurrent_captures"])
+image_scope_selected_keywords_var = tk.StringVar(value=DEFAULTS["image_scope_selected_keywords"])
+image_scope_custom_keywords_var = tk.StringVar(value=DEFAULTS["image_scope_custom_keywords"])
+image_scope_common_keyword_vars = {keyword: tk.BooleanVar(value=False) for keyword in IMAGE_SCOPE_COMMON_KEYWORDS}
 image_status_var = tk.StringVar(value="Ready")
 image_preflight_done_var = tk.BooleanVar(value=False)
 gallery_dl_version_status_var = tk.StringVar(value="gallery-dl: not checked")
@@ -25206,6 +25410,8 @@ for option_var in [
     image_retries_var,
     image_timeout_var,
     image_concurrent_captures_var,
+    image_scope_selected_keywords_var,
+    image_scope_custom_keywords_var,
 ]:
     option_var.trace_add("write", update_capture_options_summary)
 
@@ -25224,7 +25430,7 @@ playlist_preview_tab = ttk.Frame(app_notebook, padding=0)
 case_browser_tab = ttk.Frame(app_notebook, padding=0)
 
 app_notebook.add(main, text="Audio/Video Capture")
-app_notebook.add(image_capture_tab, text="Image Capture")
+app_notebook.add(image_capture_tab, text=IMAGE_CAPTURE_TAB_LABEL)
 app_notebook.add(web_capture_tab, text="Webpage Capture")
 app_notebook.add(job_queue_tab, text="Job Queue")
 app_notebook.add(output_log_tab, text="Output Log")
@@ -25395,7 +25601,7 @@ def get_active_capture_tab_context():
 
     if tab_text == "Audio/Video Capture":
         return "av"
-    if tab_text == "Image Capture":
+    if tab_text in {IMAGE_CAPTURE_TAB_LABEL, LEGACY_IMAGE_CAPTURE_TAB_LABEL}:
         return "image"
     if tab_text == "Webpage Capture":
         return "web"
@@ -25806,7 +26012,7 @@ failed_url_toggle_button = build_url_box_button_grid(
     (
         ("Load", load_urls_from_input_file),
         ("Append", append_urls_from_input_file),
-        ("Save", save_urls_to_input_file),
+        ("Save As", save_urls_to_input_file),
         ("Clear", clear_urls),
         ("Strip", strip_url_extra_ampersand_tags),
         ("Copy", copy_urls_from_box),
@@ -25925,7 +26131,7 @@ if FRESH_STARTUP_MESSAGES:
     append_log("\n".join(FRESH_STARTUP_MESSAGES) + "\n")
 
 
-# ---------------- Image Capture / gallery-dl ----------------
+# ---------------- Gallery/Profile Capture / gallery-dl ----------------
 
 image_url_view_mode = "all"
 image_url_all_view_cache = []
@@ -25969,7 +26175,7 @@ def set_image_url_box_urls(urls):
 def load_image_urls_from_input_file(replace=True):
     paths = get_existing_image_input_file_paths()
     if not paths:
-        messagebox.showwarning("Input File(s)", "No valid Image Capture Input File(s) were selected.")
+        messagebox.showwarning("Input File(s)", "No valid Gallery/Profile Capture Input File(s) were selected.")
         return
     urls = read_urls_from_input_paths(paths, log_errors=True)
     if replace:
@@ -25986,43 +26192,60 @@ def load_image_urls_from_input_file(replace=True):
 def save_image_urls_to_input_file():
     content = image_urls_text.get("1.0", "end").strip()
     if not content:
-        messagebox.showwarning("No URLs", "The Image Capture URL box is empty.")
+        messagebox.showwarning("No URLs", "The Gallery/Profile Capture URL box is empty.")
         return
-    path = image_input_file_var.get().strip()
-    if not path:
-        path = filedialog.asksaveasfilename(title="Save Image Capture URLs", initialdir=ROOT, initialfile="image-urls.txt", filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
+
+    current_input_file = image_input_file_var.get().strip()
+    initial_dir = ROOT
+    initial_file = "gallery-profile-urls.txt"
+    if current_input_file:
+        try:
+            current_paths = parse_image_input_file_paths(current_input_file)
+            first_path = current_paths[0] if current_paths else current_input_file
+            initial_dir = os.path.dirname(os.path.abspath(first_path)) or ROOT
+            initial_file = os.path.basename(first_path) or initial_file
+        except Exception:
+            pass
+
+    path = filedialog.asksaveasfilename(
+        title="Save Gallery/Profile Capture URLs As...",
+        initialdir=initial_dir,
+        initialfile=initial_file,
+        defaultextension=".txt",
+        filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+    )
     if not path:
         return
     try:
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         Path(path).write_text(content + "\n", encoding="utf-8")
         image_input_file_var.set(path)
-        image_append_log(f"\nSaved Image Capture URL box to: {path}\n")
+        image_append_log(f"\nSaved Gallery/Profile Capture URL box as: {path}\n")
     except Exception as e:
         messagebox.showerror("Save failed", str(e))
 
 
 def clear_image_urls():
     image_urls_text.delete("1.0", "end")
-    image_append_log("\nCleared Image Capture URL box.\n")
+    image_append_log("\nCleared Gallery/Profile Capture URL box.\n")
 
 
 def strip_image_url_extra_ampersand_tags():
     content = get_text_widget_content(image_urls_text, "end", strip=True)
     if not content:
-        messagebox.showwarning("No URLs", "The Image Capture URL box is empty.")
+        messagebox.showwarning("No URLs", "The Gallery/Profile Capture URL box is empty.")
         return
     output_text, changed = strip_parameter_like_ampersand_tags_from_text(content)
     replace_text_widget_content(image_urls_text, output_text)
-    image_append_log(f"\nStripped parameter-like ampersand tags from {changed} Image Capture URL(s).\n")
+    image_append_log(f"\nStripped parameter-like ampersand tags from {changed} Gallery/Profile Capture URL(s).\n")
 
 
 def copy_image_urls_from_box():
     value = get_text_widget_content(image_urls_text, "end-1c", strip=False)
     if not value.strip():
-        messagebox.showwarning("No URLs", "The Image Capture URL box is empty.")
+        messagebox.showwarning("No URLs", "The Gallery/Profile Capture URL box is empty.")
         return
-    copy_text_to_clipboard(value, label="Image Capture URL box", log_func=image_append_log)
+    copy_text_to_clipboard(value, label="Gallery/Profile Capture URL box", log_func=image_append_log)
 
 
 def get_image_gui_failed_urls_path():
@@ -26054,7 +26277,7 @@ def toggle_image_failed_url_view():
             failed_urls.append(record["url"])
 
         if not failed_urls:
-            messagebox.showinfo("No failed URLs", "No failed Image Capture URLs were found for the current Output Root/current URL set.")
+            messagebox.showinfo("No failed URLs", "No failed Gallery/Profile Capture URLs were found for the current Output Root/current URL set.")
             return
 
         set_image_url_box_urls(failed_urls)
@@ -26063,7 +26286,7 @@ def toggle_image_failed_url_view():
             image_failed_url_toggle_button.config(text="All")
         except Exception:
             pass
-        image_append_log(f"\nShowing {len(failed_urls)} failed Image Capture URL(s) in the URL box.\n")
+        image_append_log(f"\nShowing {len(failed_urls)} failed Gallery/Profile Capture URL(s) in the URL box.\n")
         return
 
     set_image_url_box_urls(image_url_all_view_cache)
@@ -26072,50 +26295,50 @@ def toggle_image_failed_url_view():
         image_failed_url_toggle_button.config(text="Failed")
     except Exception:
         pass
-    image_append_log("\nRestored all Image Capture URLs in the URL box.\n")
+    image_append_log("\nRestored all Gallery/Profile Capture URLs in the URL box.\n")
 
 
 def group_image_urls_by_tld():
     urls = get_image_url_list()
     if not urls:
-        messagebox.showwarning("No URLs", "No Image Capture URLs are available to group.")
+        messagebox.showwarning("No URLs", "No Gallery/Profile Capture URLs are available to group.")
         return
     output_lines, groups = group_urls_by_domain_lines(urls)
     replace_text_widget_content(image_urls_text, "\n".join(output_lines).strip())
-    image_append_log(f"\nGrouped {len(urls)} Image Capture URL(s) by {len(groups)} domain(s).\n")
+    image_append_log(f"\nGrouped {len(urls)} Gallery/Profile Capture URL(s) by {len(groups)} domain(s).\n")
 
 
 def show_image_url_statistics():
     urls = get_image_url_list()
     if not urls:
-        messagebox.showinfo("URL Statistics", "No Image Capture URLs found.")
+        messagebox.showinfo("URL Statistics", "No Gallery/Profile Capture URLs found.")
         return
     lines, _counts = build_url_statistics_lines(urls)
-    messagebox.showinfo("Image Capture URL Statistics", "\n".join(lines))
+    messagebox.showinfo("Gallery/Profile Capture URL Statistics", "\n".join(lines))
 
 
 def remove_duplicate_image_urls_from_box():
     source_text = get_image_url_source_text()
     if not source_text.strip():
-        messagebox.showwarning("No URLs", "No Image Capture URL text or input file contents were found.")
+        messagebox.showwarning("No URLs", "No Gallery/Profile Capture URL text or input file contents were found.")
         return
     output_urls, duplicate_count = deduplicate_urls_from_source_text(source_text)
     set_image_url_box_urls(output_urls)
     messagebox.showinfo("Duplicates Removed", f"Unique URLs kept: {len(output_urls)}\nDuplicates removed: {duplicate_count}")
-    image_append_log(f"\nRemoved {duplicate_count} duplicate Image Capture URL(s); kept {len(output_urls)} unique URL(s).\n")
+    image_append_log(f"\nRemoved {duplicate_count} duplicate Gallery/Profile Capture URL(s); kept {len(output_urls)} unique URL(s).\n")
 
 
 def validate_image_urls_in_box(normalize=False):
     source = get_image_url_source_text()
     if not source.strip():
-        messagebox.showwarning("No URLs", "No Image Capture URL text or input file contents were found.")
+        messagebox.showwarning("No URLs", "No Gallery/Profile Capture URL text or input file contents were found.")
         return
     analysis = analyze_url_source_text(source)
     if normalize:
         set_image_url_box_urls(analysis["valid_urls"])
     messages = build_url_validation_messages(analysis, normalized=normalize)
-    messagebox.showinfo("Image Capture URL Validate" if not normalize else "Image Capture URL Normalize", "\n".join(messages))
-    image_append_log(f"\n{'Normalized' if normalize else 'Validated'} Image Capture URL source: {len(analysis['valid_urls'])} valid URL(s).\n")
+    messagebox.showinfo("Gallery/Profile Capture URL Validate" if not normalize else "Gallery/Profile Capture URL Normalize", "\n".join(messages))
+    image_append_log(f"\n{'Normalized' if normalize else 'Validated'} Gallery/Profile Capture URL source: {len(analysis['valid_urls'])} valid URL(s).\n")
 
 
 def get_resolved_image_case_name(now=None, domains=None, presets=None, playlist=None):
@@ -26128,7 +26351,7 @@ def get_resolved_image_case_name(now=None, domains=None, presets=None, playlist=
         playlist=playlist,
         engine="gallery-dl",
     )
-    return resolve_windows_case_name(rendered, label="Image Capture Case Name")
+    return resolve_windows_case_name(rendered, label="Gallery/Profile Capture Case Name")
 
 
 def update_image_case_folder_preview(*_args):
@@ -26173,7 +26396,7 @@ def open_image_output_folder():
     if os.path.isdir(path):
         os.startfile(path)
     else:
-        messagebox.showwarning("Folder not found", "Image Capture Output Root folder does not exist.")
+        messagebox.showwarning("Folder not found", "Gallery/Profile Capture Output Root folder does not exist.")
 
 
 def delete_current_image_case_folder():
@@ -26186,13 +26409,13 @@ def delete_current_image_case_folder():
     if not os.path.isdir(case_folder):
         messagebox.showinfo(
             "Case folder not found",
-            f"The current Image Capture case folder does not exist:\n\n{case_folder}",
+            f"The current Gallery/Profile Capture case folder does not exist:\n\n{case_folder}",
         )
         return
 
     confirm = messagebox.askyesno(
-        "Delete current Image Capture case folder?",
-        "This will permanently delete the current Image Capture case folder and all files inside it:\n\n"
+        "Delete current Gallery/Profile Capture case folder?",
+        "This will permanently delete the current Gallery/Profile Capture case folder and all files inside it:\n\n"
         f"{case_folder}\n\n"
         "Continue?",
     )
@@ -26202,10 +26425,10 @@ def delete_current_image_case_folder():
 
     try:
         shutil.rmtree(case_folder)
-        image_append_log(f"\nDeleted Image Capture case folder: {case_folder}\n")
+        image_append_log(f"\nDeleted Gallery/Profile Capture case folder: {case_folder}\n")
         messagebox.showinfo("Case folder deleted", f"Deleted:\n\n{case_folder}")
     except Exception as e:
-        messagebox.showerror("Delete failed", f"Could not delete the Image Capture case folder:\n\n{e}")
+        messagebox.showerror("Delete failed", f"Could not delete the Gallery/Profile Capture case folder:\n\n{e}")
 
 def update_image_cookies_file_control_state(*_args):
     state = "normal" if image_use_cookies_file_var.get() else "disabled"
@@ -26214,6 +26437,124 @@ def update_image_cookies_file_control_state(*_args):
             widget.configure(state=state)
         except Exception:
             pass
+
+
+_image_scope_keywords_syncing = False
+
+
+def normalize_image_scope_keyword(value):
+    token = str(value or "").strip().lower()
+    token = re.sub(r"[^a-z0-9_-]+", "", token)
+    return token
+
+
+def parse_image_scope_keywords(value):
+    keywords = []
+    seen = set()
+    for raw in re.split(r"[\s,;]+", str(value or "")):
+        token = normalize_image_scope_keyword(raw)
+        if token and token not in seen:
+            seen.add(token)
+            keywords.append(token)
+    return keywords
+
+
+def merge_image_scope_keyword_lists(*keyword_lists):
+    merged = []
+    seen = set()
+    for keyword_list in keyword_lists:
+        for token in keyword_list or []:
+            normalized = normalize_image_scope_keyword(token)
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                merged.append(normalized)
+    return merged
+
+
+def get_image_scope_selected_keywords():
+    selected = []
+    for keyword in IMAGE_SCOPE_COMMON_KEYWORDS:
+        variable = image_scope_common_keyword_vars.get(keyword)
+        if variable is not None and bool(variable.get()):
+            selected.append(keyword)
+    return selected
+
+
+def get_image_scope_selected_keywords_csv():
+    return ",".join(get_image_scope_selected_keywords())
+
+
+def get_image_scope_custom_keywords():
+    return parse_image_scope_keywords(image_scope_custom_keywords_var.get())
+
+
+def get_image_scope_custom_keywords_csv():
+    return ",".join(get_image_scope_custom_keywords())
+
+
+def get_effective_image_scope_keywords():
+    return merge_image_scope_keyword_lists(
+        parse_image_scope_keywords(image_scope_selected_keywords_var.get()),
+        parse_image_scope_keywords(image_scope_custom_keywords_var.get()),
+    )
+
+
+def get_effective_image_scope_keywords_csv():
+    return ",".join(get_effective_image_scope_keywords())
+
+
+def get_image_scope_keywords_from_settings(settings):
+    settings = settings if isinstance(settings, dict) else {}
+    return merge_image_scope_keyword_lists(
+        parse_image_scope_keywords(settings.get("image_scope_selected_keywords", "")),
+        parse_image_scope_keywords(settings.get("image_scope_custom_keywords", "")),
+    )
+
+
+def get_image_scope_keywords_csv_from_settings(settings):
+    return ",".join(get_image_scope_keywords_from_settings(settings))
+
+
+def sync_image_scope_common_keyword_vars_from_selected(*_args):
+    global _image_scope_keywords_syncing
+    if _image_scope_keywords_syncing:
+        return
+    _image_scope_keywords_syncing = True
+    try:
+        selected = set(parse_image_scope_keywords(image_scope_selected_keywords_var.get()))
+        for keyword, variable in image_scope_common_keyword_vars.items():
+            try:
+                variable.set(keyword in selected)
+            except Exception:
+                pass
+    finally:
+        _image_scope_keywords_syncing = False
+
+
+def sync_image_scope_selected_keywords_var_from_checkboxes():
+    global _image_scope_keywords_syncing
+    if _image_scope_keywords_syncing:
+        return
+    _image_scope_keywords_syncing = True
+    try:
+        image_scope_selected_keywords_var.set(",".join(get_image_scope_selected_keywords()))
+    finally:
+        _image_scope_keywords_syncing = False
+
+
+def on_image_scope_keyword_checkbox_toggled():
+    sync_image_scope_selected_keywords_var_from_checkboxes()
+    update_capture_options_summary()
+    update_image_options_summary()
+    schedule_settings_autosave()
+
+
+def on_image_scope_keywords_text_changed(*_args):
+    if _image_scope_keywords_syncing:
+        return
+    update_capture_options_summary()
+    update_image_options_summary()
+    schedule_settings_autosave()
 
 
 def get_image_settings_dict():
@@ -26242,7 +26583,15 @@ def get_image_settings_dict():
         "image_retries": normalize_positive_int_string(image_retries_var.get(), DEFAULTS["image_retries"]),
         "image_timeout": normalize_positive_int_string(image_timeout_var.get(), DEFAULTS["image_timeout"]),
         "image_concurrent_captures": str(image_concurrent_captures_var.get()).strip() or DEFAULTS["image_concurrent_captures"],
+        "image_scope_selected_keywords": get_image_scope_selected_keywords_csv(),
+        "image_scope_custom_keywords": get_image_scope_custom_keywords_csv(),
     }
+
+
+image_scope_selected_keywords_var.trace_add("write", sync_image_scope_common_keyword_vars_from_selected)
+image_scope_selected_keywords_var.trace_add("write", on_image_scope_keywords_text_changed)
+image_scope_custom_keywords_var.trace_add("write", on_image_scope_keywords_text_changed)
+sync_image_scope_common_keyword_vars_from_selected()
 
 
 def validate_image_inputs():
@@ -26254,19 +26603,19 @@ def validate_image_inputs():
     output_root = image_output_root_var.get().strip()
 
     if not script_path or not os.path.isfile(script_path):
-        raise ValueError("Image Capture PowerShell script path is missing or invalid.")
+        raise ValueError("Gallery/Profile Capture PowerShell script path is missing or invalid.")
     if not gallery_path or not os.path.isfile(gallery_path):
         raise ValueError("gallery-dl path is missing or invalid.")
     if not urls:
         if input_paths:
             missing = [path for path in input_paths if not os.path.isfile(path)]
             if missing:
-                raise ValueError("One or more Image Capture Input File entries are missing or invalid.\n\n" + "\n".join(missing))
-        raise ValueError("No Image Capture URLs are available. Add URLs to the URL box or select Input File(s).")
-    validate_enabled_cookies_file(image_use_cookies_file_var.get(), cookies_file, label="Image Capture")
-    normalize_and_validate_output_root(output_root, label="Image Capture")
+                raise ValueError("One or more Gallery/Profile Capture Input File entries are missing or invalid.\n\n" + "\n".join(missing))
+        raise ValueError("No Gallery/Profile Capture URLs are available. Add URLs to the URL box or select Input File(s).")
+    validate_enabled_cookies_file(image_use_cookies_file_var.get(), cookies_file, label=IMAGE_CAPTURE_TAB_LABEL)
+    normalize_and_validate_output_root(output_root, label=IMAGE_CAPTURE_TAB_LABEL)
     if not image_case_name_var.get().strip():
-        raise ValueError("Image Capture Case Name cannot be blank.")
+        raise ValueError("Gallery/Profile Capture Case Name cannot be blank.")
     validate_gallery_filename_template(image_filename_template_var.get())
     update_image_case_folder_preview()
 
@@ -26279,22 +26628,22 @@ def validate_gallery_queue_job_inputs(job):
     cookies_file = settings.get("image_cookies_file", "").strip()
     output_root = settings.get("image_output_root", settings.get("output_root", "")).strip()
     if not script_path or not os.path.isfile(script_path):
-        raise ValueError("Image Capture PowerShell script path is missing or invalid.")
+        raise ValueError("Gallery/Profile Capture PowerShell script path is missing or invalid.")
     if not gallery_path or not os.path.isfile(gallery_path):
         raise ValueError("gallery-dl path is missing or invalid.")
     if not urls:
-        raise ValueError("The Image Capture queue job does not contain any URLs.")
+        raise ValueError("The Gallery/Profile Capture queue job does not contain any URLs.")
     validate_enabled_cookies_file(
         bool(settings.get("image_use_cookies_file", False)),
         cookies_file,
-        label="Image Capture",
+        label=IMAGE_CAPTURE_TAB_LABEL,
     )
-    normalized_output_root = normalize_and_validate_output_root(output_root, label="Image Capture")
+    normalized_output_root = normalize_and_validate_output_root(output_root, label=IMAGE_CAPTURE_TAB_LABEL)
     settings["image_output_root"] = normalized_output_root
     settings["output_root"] = normalized_output_root
     validate_windows_resolved_case_name(
         job.get("resolved_case_name", "").strip(),
-        label="Image Capture Queue Job Case Name",
+        label="Gallery/Profile Capture Queue Job Case Name",
     )
 
 
@@ -26303,7 +26652,7 @@ def build_gallery_powershell_command_for_job(job):
     input_path = create_url_input_file_from_lines(get_queue_job_run_urls(job))
     resolved_case_name = job.get("resolved_case_name", "").strip()
     if not resolved_case_name:
-        raise ValueError("Image Capture queue job resolved case name is blank.")
+        raise ValueError("Gallery/Profile Capture queue job resolved case name is blank.")
     cmd = [
         "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
         settings.get("image_script_path", "").strip(),
@@ -26328,20 +26677,27 @@ def build_gallery_powershell_command_for_job(job):
         cmd += ["-ArchiveMode", "Use"]
         if should_pass_universal_archive(archive_mode):
             cmd += ["-UniversalArchiveFile", IMAGE_UNIVERSAL_ARCHIVE_FILE]
-    if str(settings.get("image_capture_mode", DEFAULTS["image_capture_mode"])).lower() == "metadata_only":
+    capture_mode = str(settings.get("image_capture_mode", DEFAULTS["image_capture_mode"]) or DEFAULTS["image_capture_mode"]).lower()
+    if capture_mode == "metadata_only":
         cmd += ["-MetadataOnly"]
-    if bool(settings.get("image_write_metadata", True)):
-        cmd += ["-WriteMetadata"]
-    if bool(settings.get("image_write_info_json", True)):
-        cmd += ["-WriteInfoJson"]
-    if bool(settings.get("image_write_tags", True)):
-        cmd += ["-WriteTags"]
+    elif capture_mode == "media_only":
+        cmd += ["-MediaOnly"]
+    if capture_mode != "media_only":
+        if bool(settings.get("image_write_metadata", True)):
+            cmd += ["-WriteMetadata"]
+        if bool(settings.get("image_write_info_json", True)):
+            cmd += ["-WriteInfoJson"]
+        if bool(settings.get("image_write_tags", True)):
+            cmd += ["-WriteTags"]
     if str(settings.get("image_rate_limit", "normal")).lower() in {"fast", "normal", "cautious"}:
         cmd += ["-RateLimit", str(settings.get("image_rate_limit", "normal")).capitalize()]
     if bool(settings.get("image_item_range_enabled", False)) and settings.get("image_item_range", "").strip():
         cmd += ["-ItemRange", settings.get("image_item_range", "").strip()]
     elif bool(settings.get("image_max_items_enabled", False)) and settings.get("image_max_items", "").strip():
         cmd += ["-MaxItems", settings.get("image_max_items", "").strip()]
+    include_keywords = get_image_scope_keywords_csv_from_settings(settings)
+    if include_keywords:
+        cmd += ["-IncludeKeywords", include_keywords]
     cmd += ["-Retries", settings.get("image_retries", DEFAULTS["image_retries"]), "-Timeout", settings.get("image_timeout", DEFAULTS["image_timeout"])]
     proxy_url = get_proxy_url_for_command()
     if proxy_url:
@@ -26356,7 +26712,7 @@ def image_preflight_check(show_success_popup=True):
         checks.append((name, passed, detail))
         image_append_log(f"[{'PASS' if passed else 'FAIL'}] {name}" + (f" - {detail}" if detail else "") + "\n")
 
-    image_append_log("\n========== Image Capture Preflight Check ==========" "\n")
+    image_append_log("\n========== Gallery/Profile Capture Preflight Check ==========" "\n")
 
     script_path = image_script_path_var.get().strip()
     gallery_path = gallery_dl_path_var.get().strip()
@@ -26395,7 +26751,7 @@ def image_preflight_check(show_success_popup=True):
     add_check(archive_status["label"], True, f"{archive_status['state']}; {archive_status['path']}")
 
     try:
-        validated_output_root = normalize_and_validate_output_root(output_root, label="Image Capture")
+        validated_output_root = normalize_and_validate_output_root(output_root, label=IMAGE_CAPTURE_TAB_LABEL)
         add_check("Output root exists and is writable", True, validated_output_root)
     except Exception as e:
         add_check("Output root exists and is writable", False, str(e))
@@ -26417,7 +26773,7 @@ def image_preflight_check(show_success_popup=True):
 
     failed = [item for item in checks if not item[1]]
 
-    image_append_log("\nImage Capture preflight complete.\n")
+    image_append_log("\nGallery/Profile Capture preflight complete.\n")
     image_append_log(f"Passed: {len(checks) - len(failed)} / {len(checks)}\n")
     image_append_log("=====================================" "\n")
 
@@ -26425,14 +26781,14 @@ def image_preflight_check(show_success_popup=True):
         image_set_status("Preflight failed")
         if show_success_popup:
             messagebox.showwarning(
-                "Image Capture preflight failed",
-                f"{len(failed)} check(s) failed. Review the Image Capture output log before starting capture.",
+                "Gallery/Profile Capture preflight failed",
+                f"{len(failed)} check(s) failed. Review the Gallery/Profile Capture output log before starting capture.",
             )
         return False
 
     image_set_status("Preflight passed")
     if show_success_popup:
-        messagebox.showinfo("Image Capture preflight passed", "All Image Capture preflight checks passed.")
+        messagebox.showinfo("Gallery/Profile Capture preflight passed", "All Gallery/Profile Capture preflight checks passed.")
     return True
 
 
@@ -26443,8 +26799,8 @@ def run_image_preflight_check():
         passed = image_preflight_check(show_success_popup=True)
     except Exception as e:
         image_set_status("Preflight failed")
-        image_append_log(f"\nImage Capture preflight error: {e}\n")
-        messagebox.showerror("Image Capture preflight failed", str(e))
+        image_append_log(f"\nGallery/Profile Capture preflight error: {e}\n")
+        messagebox.showerror("Gallery/Profile Capture preflight failed", str(e))
         return
 
     image_preflight_done_var.set(passed is True)
@@ -26464,19 +26820,19 @@ def add_image_urls_to_queue_as_job(urls=None):
             seen.add(normalized)
             clean_urls.append(cleaned)
         if not clean_urls:
-            raise ValueError(describe_image_url_source_problem("adding the current Image Capture to the queue"))
+            raise ValueError(describe_image_url_source_problem("adding the current Gallery/Profile Capture to the queue"))
         settings = get_image_settings_dict()
         settings, applied_presets = apply_checked_domain_presets_to_settings(settings, clean_urls)
         normalized_output_root = normalize_and_validate_output_root(
             settings.get("image_output_root", settings.get("output_root", "")),
-            label="Image Capture",
+            label=IMAGE_CAPTURE_TAB_LABEL,
         )
         settings["image_output_root"] = normalized_output_root
         settings["output_root"] = normalized_output_root
         validate_enabled_cookies_file(
             settings.get("image_use_cookies_file", False),
             settings.get("image_cookies_file", ""),
-            label="Image Capture",
+            label=IMAGE_CAPTURE_TAB_LABEL,
         )
         domains = sorted({domain for domain in (get_url_domain_key(url) for url in clean_urls) if domain})
         now = datetime.now()
@@ -26490,7 +26846,7 @@ def add_image_urls_to_queue_as_job(urls=None):
                 playlist="",
                 engine="gallery-dl",
             ),
-            label="Image Capture Case Name",
+            label="Gallery/Profile Capture Case Name",
         )
         job = {
             "job_id": make_job_id(),
@@ -26526,17 +26882,17 @@ def add_image_urls_to_queue_as_job(urls=None):
         job_queue.append(job)
         save_job_queue_state()
         refresh_job_queue_window()
-        image_append_log(f"\nAdded Image Capture queue job: {resolved_case_name} ({len(clean_urls)} URL(s))\n")
+        image_append_log(f"\nAdded Gallery/Profile Capture queue job: {resolved_case_name} ({len(clean_urls)} URL(s))\n")
         if applied_presets:
-            image_append_log(f"Applied active domain preset(s) to Image Capture queue job: {', '.join(applied_presets)}\n")
+            image_append_log(f"Applied active domain preset(s) to Gallery/Profile Capture queue job: {', '.join(applied_presets)}\n")
         else:
             loaded_presets, active_presets = get_domain_preset_status()
             if loaded_presets:
-                image_append_log("Applied active domain preset(s) to Image Capture queue job: none matched this URL set.\n")
+                image_append_log("Applied active domain preset(s) to Gallery/Profile Capture queue job: none matched this URL set.\n")
                 image_append_log(f"Active domain preset(s): {', '.join(active_presets) if active_presets else 'none'}\n")
         return True
     except Exception as e:
-        messagebox.showerror("Add Image Capture job failed", str(e))
+        messagebox.showerror("Add Gallery/Profile Capture job failed", str(e))
         return False
 
 
@@ -26631,7 +26987,7 @@ def start_image_capture():
 
         added = add_image_urls_to_queue_as_job()
         if added:
-            image_append_log("\nStart Capture added the current Image Capture to the existing queue.\n")
+            image_append_log("\nStart Capture added the current Gallery/Profile Capture to the existing queue.\n")
             if job_queue_running:
                 run_next_queue_job()
             else:
@@ -26646,7 +27002,7 @@ def start_image_capture():
         return
 
     if image_running_process is not None and image_running_process.poll() is None:
-        messagebox.showwarning("Already running", "An Image Capture process is already running.")
+        messagebox.showwarning("Already running", "An Gallery/Profile Capture process is already running.")
         return
 
     cmd = []
@@ -26658,14 +27014,14 @@ def start_image_capture():
         settings, applied_domain_presets = apply_checked_domain_presets_to_settings(settings, urls)
         normalized_output_root = normalize_and_validate_output_root(
             settings.get("image_output_root", settings.get("output_root", "")),
-            label="Image Capture",
+            label=IMAGE_CAPTURE_TAB_LABEL,
         )
         settings["image_output_root"] = normalized_output_root
         settings["output_root"] = normalized_output_root
         validate_enabled_cookies_file(
             settings.get("image_use_cookies_file", False),
             settings.get("image_cookies_file", ""),
-            label="Image Capture",
+            label=IMAGE_CAPTURE_TAB_LABEL,
         )
         domains = sorted({domain for domain in (get_url_domain_key(url) for url in urls) if domain})
         now = datetime.now()
@@ -26678,7 +27034,7 @@ def start_image_capture():
                 playlist="",
                 engine="gallery-dl",
             ),
-            label="Image Capture Case Name",
+            label="Gallery/Profile Capture Case Name",
         )
         case_folder = os.path.join(settings["image_output_root"], resolved_case_name)
         job = {"engine": "gallery-dl", "settings": settings, "urls": urls, "resolved_case_name": resolved_case_name, "domains": domains, "case_template": settings["image_case_name"], "applied_domain_presets": applied_domain_presets}
@@ -26709,14 +27065,14 @@ def start_image_capture():
         schedule_settings_autosave()
     except Exception as e:
         cleanup_command_input_file_if_temp(cmd)
-        messagebox.showerror("Image Capture input error", str(e))
+        messagebox.showerror("Gallery/Profile Capture input error", str(e))
         return
 
     if check_vpn_var.get() and last_vpn_status != "connected":
         proceed = messagebox.askyesno(
             "VPN not connected",
             "The VPN does not appear to be connected.\n\n"
-            "Continue with Image Capture anyway?",
+            "Continue with Gallery/Profile Capture anyway?",
         )
         if not proceed:
             cleanup_command_input_file_if_temp(cmd)
@@ -26747,11 +27103,11 @@ def start_image_capture():
     }
     prepare_case_summary_actions_for_run("gallery-dl")
     clear_engine_log_history("gallery-dl")
-    image_append_log("Starting Image Capture...\n\n")
+    image_append_log("Starting Gallery/Profile Capture...\n\n")
     if direct_recovery_job_id:
         image_append_log(f"Recovery job saved to Job Queue: {direct_recovery_job_id}\n")
     elif not job_persistence_is_enabled():
-        image_append_log("Job Persistence is disabled; this direct Image Capture will not be recoverable from the Job Queue.\n")
+        image_append_log("Job Persistence is disabled; this direct Gallery/Profile Capture will not be recoverable from the Job Queue.\n")
     image_append_log(f"Resolved case: {resolved_case_name}\n")
     if applied_domain_presets:
         image_append_log(f"Applied active domain preset(s): {', '.join(applied_domain_presets)}\n")
@@ -26805,7 +27161,7 @@ def start_image_capture():
             image_stop_button.config(state="disabled")
             image_set_status("Interrupted" if image_direct_stop_requested else ("Complete" if exit_code == 0 else "Failed"))
             image_direct_stop_requested = False
-            image_append_log(f"\nImage Capture finished with exit code {exit_code}.\n")
+            image_append_log(f"\nGallery/Profile Capture finished with exit code {exit_code}.\n")
             schedule_case_browser_autoload(
                 delay_ms=250,
                 output_root=settings.get("image_output_root", settings.get("output_root", "")),
@@ -26820,8 +27176,8 @@ def stop_image_capture():
         try:
             image_direct_stop_requested = True
             mark_direct_recovery_job_interrupted(active_image_direct_recovery_job_id, "Stopped by user.")
-            terminate_process_tree(image_running_process, label="direct Image Capture")
-            image_append_log("\nStop requested for Image Capture process tree.\n")
+            terminate_process_tree(image_running_process, label="direct Gallery/Profile Capture")
+            image_append_log("\nStop requested for Gallery/Profile Capture process tree.\n")
         except Exception as e:
             image_append_log(f"\nStop failed: {e}\n")
     image_stop_button.config(state="disabled")
@@ -26841,6 +27197,7 @@ def update_image_options_state(*_args):
     try:
         max_state = "normal" if image_max_items_enabled_var.get() else "disabled"
         range_state = "normal" if image_item_range_enabled_var.get() else "disabled"
+        metadata_state = "disabled" if image_capture_mode_var.get() == "media_only" else "normal"
         for widget in globals().get("image_max_item_widgets", []):
             try:
                 widget.configure(state=max_state)
@@ -26849,6 +27206,11 @@ def update_image_options_state(*_args):
         for widget in globals().get("image_item_range_widgets", []):
             try:
                 widget.configure(state=range_state)
+            except Exception:
+                pass
+        for widget in globals().get("image_metadata_sidecar_widgets", []):
+            try:
+                widget.configure(state=metadata_state)
             except Exception:
                 pass
     except Exception:
@@ -26878,13 +27240,16 @@ def get_image_pacing_summary(value=None):
 def update_image_options_summary(*_args):
     try:
         metadata_parts = []
-        if image_write_metadata_var.get():
-            metadata_parts.append("metadata JSON")
-        if image_write_info_json_var.get():
-            metadata_parts.append("info JSON")
-        if image_write_tags_var.get():
-            metadata_parts.append("tags")
-        metadata_text = ", ".join(metadata_parts) if metadata_parts else "metadata off"
+        if image_capture_mode_var.get() == "media_only":
+            metadata_text = "metadata ignored"
+        else:
+            if image_write_metadata_var.get():
+                metadata_parts.append("metadata JSON")
+            if image_write_info_json_var.get():
+                metadata_parts.append("info JSON")
+            if image_write_tags_var.get():
+                metadata_parts.append("tags")
+            metadata_text = ", ".join(metadata_parts) if metadata_parts else "metadata off"
 
         if image_item_range_enabled_var.get() and image_item_range_var.get().strip():
             limit_text = f"Range: {image_item_range_var.get().strip()}"
@@ -26895,8 +27260,9 @@ def update_image_options_summary(*_args):
 
         timeout = normalize_positive_int_string(image_timeout_var.get(), DEFAULTS["image_timeout"])
         retries = normalize_positive_int_string(image_retries_var.get(), DEFAULTS["image_retries"])
+        scope_text = get_effective_image_scope_keywords_csv() or "Extractor default scope"
         parts = [
-            f"Mode: {image_capture_mode_var.get()}",
+            f"Mode: {_image_capture_mode_label(image_capture_mode_var.get())}",
             f"Archive: {image_archive_mode_var.get()}",
             limit_text,
             metadata_text,
@@ -26904,6 +27270,7 @@ def update_image_options_summary(*_args):
             f"Retries: {retries}",
             f"Timeout: {timeout}s",
             f"Concurrent: {get_image_concurrent_capture_limit()}",
+            f"Scope: {scope_text}",
         ]
         image_options_summary_var.set("; ".join(parts))
         update_image_options_state()
@@ -27000,6 +27367,9 @@ for image_option_var in [
     image_item_range_var,
     image_retries_var,
     image_timeout_var,
+    image_concurrent_captures_var,
+    image_scope_selected_keywords_var,
+    image_scope_custom_keywords_var,
 ]:
     image_option_var.trace_add("write", update_image_options_summary)
 
@@ -27090,7 +27460,7 @@ def build_image_capture_tab():
     global image_cookies_file_entry, image_cookies_file_browse_button
     image_cookies_file_entry = ttk.Entry(cookies_frame, textvariable=image_cookies_file_var)
     image_cookies_file_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-    image_cookies_file_browse_button = ttk.Button(cookies_frame, text="Browse...", command=lambda: browse_file(image_cookies_file_var, "Image Capture Cookies File"))
+    image_cookies_file_browse_button = ttk.Button(cookies_frame, text="Browse...", command=lambda: browse_file(image_cookies_file_var, "Gallery/Profile Capture Cookies File"))
     image_cookies_file_browse_button.grid(row=0, column=1, sticky="e", padx=(0, 6))
     ttk.Checkbutton(cookies_frame, text="Use", variable=image_use_cookies_file_var, command=lambda: (update_image_cookies_file_control_state(), schedule_settings_autosave())).grid(row=0, column=2, sticky="e")
 
@@ -27161,7 +27531,7 @@ def build_image_capture_tab():
 
     update_vpn_section_visibility()
 
-    ttk.Label(image_capture_tab, text="Paste image/gallery URLs below, one per line. If this box is used, it overrides the Input File(s) field.").grid(row=10, column=0, columnspan=4, sticky="w", pady=(4, 2))
+    ttk.Label(image_capture_tab, text="Paste profile, gallery, post, or other supported media URLs below, one per line. If this box is used, it overrides the Input File(s) field.").grid(row=10, column=0, columnspan=4, sticky="w", pady=(4, 2))
     global image_urls_text
     image_urls_text = scrolledtext.ScrolledText(image_capture_tab, height=5, wrap="word")
     image_urls_text.grid(row=11, column=0, columnspan=3, sticky="nsew", pady=(0, 5))
@@ -27173,7 +27543,7 @@ def build_image_capture_tab():
         (
             ("Load", lambda: load_image_urls_from_input_file(True)),
             ("Append", lambda: load_image_urls_from_input_file(False)),
-            ("Save", save_image_urls_to_input_file),
+            ("Save As", save_image_urls_to_input_file),
             ("Clear", clear_image_urls),
             ("Strip", strip_image_url_extra_ampersand_tags),
             ("Copy", copy_image_urls_from_box),
@@ -27419,7 +27789,7 @@ def build_web_capture_tab():
         (
             ("Load", lambda: load_web_urls_from_input_file(True)),
             ("Append", lambda: load_web_urls_from_input_file(False)),
-            ("Save", save_web_urls_to_input_file),
+            ("Save As", save_web_urls_to_input_file),
             ("Clear", clear_web_urls),
             ("Strip", strip_web_url_extra_ampersand_tags),
             ("Copy", copy_web_urls_from_box),
@@ -28601,7 +28971,7 @@ update_web_pdf_options_state()
 update_web_filename_template_preview()
 update_web_options_summary()
 
-# Image Capture inline option panels. These intentionally mirror the
+# Gallery/Profile Capture inline option panels. These intentionally mirror the
 # Audio/Video Capture tab pattern: button row on the main tab, collapsible
 # in-tab panels below it, and a compact semicolon-separated summary label.
 image_capture_options_panel, image_capture_options_content = create_scrollable_options_panel(image_capture_tab, 'Capture Options', padding=12)
@@ -28611,7 +28981,7 @@ image_capture_options_content.columnconfigure(2, weight=1)
 
 ttk.Label(
     image_capture_options_content,
-    text="These options are passed to the gallery-dl image capture script. Defaults favor repeatable image/gallery capture with useful metadata sidecars.",
+    text="These options are passed to the gallery-dl profile/media capture script. Defaults favour repeatable profile capture with useful metadata sidecars.",
     wraplength=980,
     justify="left",
 ).grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 12))
@@ -28620,14 +28990,21 @@ image_mode_frame = ttk.LabelFrame(image_capture_options_content, text="Capture M
 image_mode_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 8), pady=(0, 8))
 ttk.Radiobutton(
     image_mode_frame,
-    text="Download images/files and selected metadata",
+    text="Media + selected metadata",
     variable=image_capture_mode_var,
     value="media",
     command=update_image_options_summary,
 ).pack(anchor="w", pady=2)
 ttk.Radiobutton(
     image_mode_frame,
-    text="Metadata/artifacts only",
+    text="Media only; ignore metadata options",
+    variable=image_capture_mode_var,
+    value="media_only",
+    command=update_image_options_summary,
+).pack(anchor="w", pady=2)
+ttk.Radiobutton(
+    image_mode_frame,
+    text="Metadata/artifacts only; do not download media",
     variable=image_capture_mode_var,
     value="metadata_only",
     command=update_image_options_summary,
@@ -28678,26 +29055,55 @@ image_limits_frame.columnconfigure(1, weight=1)
 image_max_item_widgets = [image_max_entry]
 image_item_range_widgets = [image_range_entry]
 
+image_scope_frame = ttk.LabelFrame(image_capture_options_content, text="Scope / include Keywords", padding=8)
+image_scope_frame.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=(0, 8))
+ttk.Label(
+    image_scope_frame,
+    text="Select common gallery/profile scope keywords and optionally add your own comma-separated keywords. All selected/custom keywords are merged and passed to gallery-dl's include option.",
+    wraplength=920,
+    justify="left",
+).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 8))
+for index, keyword in enumerate(IMAGE_SCOPE_COMMON_KEYWORDS):
+    ttk.Checkbutton(
+        image_scope_frame,
+        text=keyword,
+        variable=image_scope_common_keyword_vars[keyword],
+        command=on_image_scope_keyword_checkbox_toggled,
+    ).grid(row=1 + (index // 4), column=index % 4, sticky="w", padx=(0, 12), pady=2)
+custom_scope_row = 1 + ((len(IMAGE_SCOPE_COMMON_KEYWORDS) - 1) // 4) + 1
+ttk.Label(image_scope_frame, text="Custom keywords (comma separated)").grid(row=custom_scope_row, column=0, sticky="w", pady=(8, 3))
+ttk.Entry(image_scope_frame, textvariable=image_scope_custom_keywords_var).grid(row=custom_scope_row, column=1, columnspan=3, sticky="ew", pady=(8, 3))
+for col in range(4):
+    image_scope_frame.columnconfigure(col, weight=1)
+
 image_metadata_frame = ttk.LabelFrame(image_capture_options_content, text="Metadata Sidecars", padding=8)
-image_metadata_frame.grid(row=2, column=0, columnspan=3, sticky="nsew", pady=(0, 8))
-ttk.Checkbutton(
+image_metadata_frame.grid(row=3, column=0, columnspan=3, sticky="nsew", pady=(0, 8))
+image_write_metadata_check = ttk.Checkbutton(
     image_metadata_frame,
-    text="Write per-file metadata JSON",
+    text="Write per-item metadata JSON",
     variable=image_write_metadata_var,
     command=update_image_options_summary,
-).grid(row=0, column=0, sticky="w", padx=(0, 18), pady=2)
-ttk.Checkbutton(
+)
+image_write_metadata_check.grid(row=0, column=0, sticky="w", padx=(0, 18), pady=2)
+image_write_info_json_check = ttk.Checkbutton(
     image_metadata_frame,
-    text="Write gallery-level info JSON",
+    text="Write profile/gallery info JSON",
     variable=image_write_info_json_var,
     command=update_image_options_summary,
-).grid(row=0, column=1, sticky="w", padx=(0, 18), pady=2)
-ttk.Checkbutton(
+)
+image_write_info_json_check.grid(row=0, column=1, sticky="w", padx=(0, 18), pady=2)
+image_write_tags_check = ttk.Checkbutton(
     image_metadata_frame,
     text="Write tags text files",
     variable=image_write_tags_var,
     command=update_image_options_summary,
-).grid(row=0, column=2, sticky="w", pady=2)
+)
+image_write_tags_check.grid(row=0, column=2, sticky="w", pady=2)
+image_metadata_sidecar_widgets = [
+    image_write_metadata_check,
+    image_write_info_json_check,
+    image_write_tags_check,
+]
 for col in (0, 1, 2):
     image_metadata_frame.columnconfigure(col, weight=1)
 

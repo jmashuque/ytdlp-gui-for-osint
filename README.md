@@ -15,7 +15,7 @@ A portable Windows GUI for approved audio/video/image and rendered webpage captu
   - [Setup and Staging](#setup-and-staging)
   - [Start a Capture](#start-a-capture)
   - [Capture Audio or Video](#capture-audio-or-video)
-  - [Capture Images](#capture-images)
+  - [Capture a Gallery or Profile](#capture-a-gallery-or-profile)
   - [Capture a Webpage](#capture-a-webpage)
   - [Use the Job Queue](#use-the-job-queue)
   - [Review Capture Output](#review-capture-output)
@@ -26,7 +26,7 @@ A portable Windows GUI for approved audio/video/image and rendered webpage captu
   - [Portable Layout](#portable-layout)
   - [Output Log](#output-log)
   - [Audio/Video Capture](#audiovideo-capture)
-  - [Image Capture](#image-capture)
+  - [Gallery/Profile Capture](#galleryprofile-capture)
   - [Webpage Capture](#webpage-capture)
   - [Job Queue, Persistence, and Recovery](#job-queue-persistence-and-recovery)
   - [Domain Presets, Proxy, VPN, and Archives](#domain-presets-proxy-vpn-and-archives)
@@ -38,12 +38,12 @@ A portable Windows GUI for approved audio/video/image and rendered webpage captu
 
 ## Overview
 
-`Webpage/Audio/Video/Image Capture GUI for OSINT` (`WAVI Capture GUI for OSINT`) is a local, portable interface for repeatable capture work in managed environments.
+`Webpage/Audio/Video/Gallery/Profile Capture GUI for OSINT` (`WAVI Capture GUI for OSINT`) is a local, portable interface for repeatable capture work in managed environments.
 
 The app has seven main tabs:
 
 - **Audio/Video Capture** for `yt-dlp` captures.
-- **Image Capture** for `gallery-dl` captures.
+- **Gallery/Profile Capture** for `gallery-dl` captures.
 - **Webpage Capture** for rendered webpage images, optional PDFs, and bounded interactive-item capture.
 - **Job Queue** for staged, concurrent, and recoverable jobs.
 - **Output Log** for live Audio/Video, Image, Webpage, or combined capture output.
@@ -56,7 +56,7 @@ The app does not bundle capture tools or make authorization decisions. Tools, cr
 
 <p align="center">
   <img src="/screenshots/main1.png" alt="audio/video capture tab" width="31%">
-  <img src="/screenshots/main2.png" alt="image capture tab" width="31%">
+  <img src="/screenshots/main2.png" alt="Gallery/Profile Capture tab" width="31%">
   <img src="/screenshots/main3.png" alt="webpage capture tab" width="31%">
 </p>
 
@@ -144,7 +144,7 @@ Required files/tools:
 
 Keep `interactive-whitelist.txt` and `interactive-blacklist.txt` beside `gui.py`. They are read only when **Interactive Overlays** is enabled, but they should remain in every staged app folder so the feature is available and its default safety rules are not lost.
 
-`deno.exe` should be beside `yt-dlp.exe`. `gallery-dl.exe` can be beside the app or selected manually in the Image Capture tab. Webpage Capture uses the selected installed Chromium-family browser executable; the browser itself is not bundled. Webpage Capture keeps its temporary isolated browser workspace under the app-owned `gui-temp` folder and removes it after use.
+`deno.exe` should be beside `yt-dlp.exe`. `gallery-dl.exe` can be beside the app or selected manually in the Gallery/Profile Capture tab. Webpage Capture uses the selected installed Chromium-family browser executable; the browser itself is not bundled. Webpage Capture keeps its temporary isolated browser workspace under the app-owned `gui-temp` folder and removes it after use.
 
 Recommended source pages:
 
@@ -226,7 +226,7 @@ Do this once before the first capture, or whenever you prepare a fresh copy of W
 
 2. Select the appropriate tab:
    - **Audio/Video Capture** for video, audio, channels, playlists, and supported media posts.
-   - **Image Capture** for image posts, galleries, albums, and supported collections.
+   - **Gallery/Profile Capture** primarily for supported profiles and timelines, plus individual posts, galleries, albums, and other media collections handled by `gallery-dl`.
    - **Webpage Capture** for a rendered screenshot and optional PDF of an approved webpage.
 
 3. Check the main fields:
@@ -241,7 +241,7 @@ Do this once before the first capture, or whenever you prepare a fresh copy of W
 
    Every capture tab has the same twelve URL-box tools:
 
-   - **Load**, **Append**, **Save**, **Clear**, and **Copy** manage the URL text.
+   - **Load**, **Append**, **Save As**, **Clear**, and **Copy** manage the URL text. **Save As** always opens a file picker instead of automatically overwriting the currently selected Input File; the file you save becomes the selected Input File for that capture tab.
    - **Failed** shows failed URLs from the current Output Root that match the current URL set; the button changes to **All** so the original set can be restored.
    - **Group** organizes URLs under domain headings, and **Statistics** shows totals by domain.
    - **Normalize**, **Duplicates**, and **Validate** clean or inspect the URL source.
@@ -251,7 +251,7 @@ Do this once before the first capture, or whenever you prepare a fresh copy of W
 
 6. Click **Start Capture** and leave WAVI open until the run finishes.
 
-7. Review live capture output in **Output Log**. Select **Audio/Video**, **Image**, **Webpage**, or **All Engines**. **Follow output** keeps the newest messages visible; **Copy Visible**, **Save Visible**, and **Clear Display** act only on the selected view and do not delete case log files.
+7. Review live capture output in **Output Log**. Select **Audio/Video**, **Gallery/Profile**, **Webpage**, or **All Engines**. **Follow output** keeps the newest messages visible; **Copy Visible**, **Save Visible**, and **Clear Display** act only on the selected view and do not delete case log files.
 
 8. Open the case folder and confirm the expected files, logs, and manifest are present. After a successful run, the main **Copy Case Summary** button copies a plain-text record of the case paths, file counts, tool versions, and effective capture options. Use its **▼** menu to copy or export the case's captured URLs or failed URLs. URL lists are filtered to the current capture engine and case name. WAVI refuses oversized clipboard copies instead of truncating them; use **Export** for a complete large list.
 
@@ -267,17 +267,18 @@ For a first capture, keep the defaults unless the source is a playlist or you sp
 
 Use **Audio/Video Preview** before capture when you need to inspect a playlist, title, thumbnail, or available metadata. See [Advanced Audio/Video Capture](#audiovideo-capture) for format strategies, metadata files, embeds, filtering, pacing, and archive controls.
 
-### Capture Images
+### Capture a Gallery or Profile
 
-A single gallery URL can produce many files. When the size is uncertain, start with a small item limit or range.
+Gallery/Profile Capture is primarily intended for supported profile and timeline collection through `gallery-dl`, while also handling individual posts, galleries, albums, and other supported media collections. A profile URL can expand to many media items, including images or video where the extractor supports them. When the size is uncertain, start with a small item limit or range.
 
-1. Open **Image Capture** and confirm the paths to the PowerShell script and `gallery-dl.exe`.
-2. Choose an Output Root and case name, then paste the approved image or gallery URL.
-3. For a large or unfamiliar gallery, open **Capture Options**, enable **Limit max items**, and begin with a small number such as 10 or 25.
-4. Run **Preflight Check**, then start the capture.
-5. Review the images and metadata files under `media`, the gallery-dl log under `logs`, and the manifest under `manifests`. Use **Copy Case Summary** after a successful run when you need a concise record for case notes or handoff.
+1. Open **Gallery/Profile Capture** and confirm the paths to the PowerShell script and `gallery-dl.exe`.
+2. Choose an Output Root and case name, then paste the approved profile, gallery, post, or other supported media URL.
+3. For a profile capture, open **Capture Options** and select the applicable **Scope / include Keywords** such as `posts`, `stories`, `reels`, or `highlights`. Site support varies by extractor.
+4. For a large or unfamiliar profile or collection, enable **Limit max items** and begin with a small number such as 10 or 25.
+5. Run **Preflight Check**, then start the capture.
+6. Review the captured media and metadata files under `media`, the gallery-dl log under `logs`, and the manifest under `manifests`. Use **Copy Case Summary** after a successful run when you need a concise record for case notes or handoff.
 
-See [Advanced Image Capture](#image-capture) for metadata-only runs, item ranges, archive modes, pacing, retries, timeouts, cookies, and concurrency.
+See [Advanced Gallery/Profile Capture](#galleryprofile-capture) for capture modes, profile scope, metadata-only runs, item ranges, archive modes, pacing, retries, timeouts, cookies, and concurrency.
 
 ### Capture a Webpage
 
@@ -295,7 +296,7 @@ Webpage Capture does not dismiss consent banners, sign in, solve MFA/CAPTCHA cha
 
 Use **Job Queue** when you want to prepare several captures before running them.
 
-1. Add work from **Audio/Video Capture**, **Image Capture**, **Webpage Capture**, or **Audio/Video Preview**.
+1. Add work from **Audio/Video Capture**, **Gallery/Profile Capture**, **Webpage Capture**, or **Audio/Video Preview**.
 2. Review the queued jobs.
 3. Start the full queue, checked jobs, or highlighted jobs from the right-click menu.
 4. Leave the app open while the queue runs.
@@ -318,7 +319,7 @@ To resume it:
 3. Use **Continue Checked Interrupted** or right-click the highlighted job and choose **Continue Highlighted Interrupted**.
 4. Leave the app open while the resumed queue job runs.
 
-Direct captures are saved for recovery only when **Job Persistence** is enabled. Audio/Video and Webpage jobs continue from the first URL not marked complete. Image jobs safely re-check the original URL list and use the selected gallery-dl archive to skip items already completed.
+Direct captures are saved for recovery only when **Job Persistence** is enabled. Audio/Video and Webpage jobs continue from the first URL not marked complete. Gallery/Profile jobs safely re-check the original URL list and use the selected gallery-dl archive to skip items already completed.
 
 ### Preview Audio/Video Links
 
@@ -504,19 +505,20 @@ After a finished Audio/Video run, the **▼** beside **Copy Case Summary** can c
 
 Cookies, proxy settings, domain presets, VPN checks, and the universal archive are shared/app-level controls described later in this README. A cookies file can provide an approved session, but it does not bypass login, MFA, challenges, extractor limitations, or source restrictions.
 
-### Image Capture
+### Gallery/Profile Capture
 
-Image Capture uses `script-gallerydl.ps1` and `gallery-dl.exe`. It is intended for supported image posts, galleries, albums, and collection pages where one submitted URL may resolve to many files. The URL box takes priority over Input File(s). The image template is relative to the case `media` folder; case tags resolve when the job is created, while gallery-dl fields such as category, subcategory, ID, filename, and extension resolve per item. WAVI passes `--config-ignore` so default gallery-dl configuration files cannot silently override the capture settings selected in WAVI.
+Gallery/Profile Capture uses `script-gallerydl.ps1` and `gallery-dl.exe`. Its primary purpose is supported profile and timeline capture, where one submitted profile URL can expand to many media items. It also supports individual posts, galleries, albums, and other media collections handled by the active gallery-dl extractor. Captured media can include images, video, and other supported files. The URL box takes priority over Input File(s). The filename template is relative to the case `media` folder; case tags resolve when the job is created, while gallery-dl fields such as category, subcategory, ID, filename, and extension resolve per item. WAVI passes `--config-ignore` so default gallery-dl configuration files cannot silently override the capture settings selected in WAVI.
 
 **Capture mode**
 
-- **Download images/files and selected metadata** downloads supported items and writes the enabled sidecars.
-- **Metadata/artifacts only** runs gallery-dl's normal extraction and selected metadata postprocessors while disabling the media download itself. Native extractor failures therefore remain visible as failures, and enabled metadata JSON, gallery-level info JSON, and tags outputs follow the same processing path used by a normal Image capture.
+- **Media + selected metadata** downloads supported media and writes the enabled metadata sidecars.
+- **Media only; ignore metadata options** downloads supported media without the metadata JSON, profile/gallery info JSON, or tags sidecars. The metadata-sidecar controls are disabled while this mode is selected.
+- **Metadata/artifacts only; do not download media** runs gallery-dl's normal extraction and selected metadata postprocessors while disabling the media download itself. Native extractor failures therefore remain visible as failures, and enabled metadata JSON, profile/gallery info JSON, and tags outputs follow the same processing path used by a normal Gallery/Profile capture.
 
 **Metadata sidecars**
 
-- **Per-file metadata JSON** records metadata associated with individual extracted items where the extractor supplies it.
-- **Gallery-level info JSON** records broader gallery or source information where supported.
+- **Per-item metadata JSON** records metadata associated with individual extracted media items where the extractor supplies it.
+- **Profile/gallery info JSON** records broader profile, gallery, or source information where supported.
 - **Tags text files** writes available tags in a simple text form.
 
 Sidecar availability and contents depend on the site and its gallery-dl extractor. A checked option does not guarantee that every source provides that data.
@@ -527,7 +529,15 @@ Sidecar availability and contents depend on the site and its gallery-dl extracto
 - **Use item range** accepts gallery-dl range syntax such as `1-25`.
 - When both are enabled and contain values, **item range takes precedence** over maximum items.
 
-Use a small range for unfamiliar or very large galleries. This reduces accidental over-collection and provides a manageable test of the filename template and metadata output.
+Use a small range for unfamiliar or very large profiles and collections. This reduces accidental over-collection and provides a manageable test of the filename template and metadata output.
+
+**Scope / include keywords**
+
+- **Scope / include keywords** lets a profile capture request the supported content categories that gallery-dl should include, using common terms such as `posts`, `stories`, `reels`, `highlights`, `avatar`, `background`, `timeline`, `profile`, `videos`, `images`, `albums`, `tagged`, `likes`, and `saved`.
+- **Custom keywords** accepts additional comma-separated terms such as site-specific scope names.
+- WAVI merges the selected built-in terms and custom terms, then passes them to gallery-dl's `include` option.
+
+Extractor support varies by site. A keyword that is meaningful for one extractor may be ignored or unsupported by another.
 
 **Archive modes**
 
@@ -535,7 +545,7 @@ Use a small range for unfamiliar or very large galleries. This reduces accidenta
 - **Ignore archive for this run** performs the run without archive-based skipping or recording for that run.
 - **Force re-capture** passes gallery-dl's no-skip behaviour so matching files can be collected again deliberately.
 
-When app-level **Universal Download Archive** is enabled, Image Capture uses `universal-gallerydl-archive.sqlite3` for cross-case duplicate avoidance instead of the case archive. Metadata/artifacts-only runs keep their archive entries in a separate `wavi_metadata` table inside the selected SQLite archive, so metadata-only collection cannot make a later full-media capture skip the same item as already downloaded. Archive records identify prior successful items; they are not substitutes for artifacts in the current case.
+When app-level **Universal Download Archive** is enabled, Gallery/Profile Capture uses `universal-gallerydl-archive.sqlite3` for cross-case duplicate avoidance instead of the case archive. Metadata/artifacts-only runs keep their archive entries in a separate `wavi_metadata` table inside the selected SQLite archive, so metadata-only collection cannot make a later full-media capture skip the same item as already downloaded. Archive records identify prior successful items; they are not substitutes for artifacts in the current case.
 
 **Pacing presets**
 
@@ -551,7 +561,7 @@ Use **Normal** for routine work. **Fast** is useful only when the source and pol
 
 - **Retries** controls gallery-dl retry attempts; the default is 4 and the accepted range is 1 to 100.
 - **Timeout seconds** controls the HTTP timeout; the default is 30 seconds and the accepted range is 10 to 900 seconds.
-- **Concurrent captures** controls separate active Image queue jobs, from 1 to 4. It does not split one gallery across multiple workers, and WAVI checks for same-domain collisions.
+- **Concurrent captures** controls separate active Gallery/Profile queue jobs, from 1 to 4. It does not split one profile or collection across multiple workers, and WAVI checks for same-domain collisions.
 
 Raising retries and concurrency can prolong a failing job or increase rate limiting. A larger timeout can help slow servers but also makes unreachable URLs take longer to fail.
 
@@ -563,7 +573,7 @@ The default template is:
 %category%/%subcategory%/%id%_%filename%.%extension%
 ```
 
-Use the preview below the template to confirm the expected relative path before capture. Keep identifiers in the template where possible so similarly named gallery items do not overwrite one another.
+Use the preview below the template to confirm the expected relative path before capture. Keep identifiers in the template where possible so similarly named profile or collection items do not overwrite one another.
 
 Typical output:
 
@@ -571,7 +581,7 @@ Typical output:
 <case>\
   media\
     <category or template folders>\
-      <images and selected sidecars>
+      <media and selected sidecars>
   logs\
     gallery-dl-run_<timestamp>.log
     gallery-dl-unsupported_<timestamp>.txt   (when applicable)
@@ -580,11 +590,11 @@ Typical output:
     gallery-dl-sha256-manifest_<timestamp>.csv
 ```
 
-The Image manifest hashes eligible case evidence outside the `.gui-cache` and `manifests` control folders. Manifest paths are recorded relative to the case folder so verification does not depend on the case remaining under its original Output Root.
+The Gallery/Profile manifest hashes eligible case evidence outside the `.gui-cache` and `manifests` control folders. Manifest paths are recorded relative to the case folder so verification does not depend on the case remaining under its original Output Root.
 
-Image recovery is archive-backed: continuing an interrupted Image job resubmits the original URLs and relies on the active gallery-dl archive to skip completed items. This differs from Audio/Video and Webpage recovery, which can continue from the first URL not marked complete.
+Gallery/Profile recovery is archive-backed: continuing an interrupted Gallery/Profile job resubmits the original URLs and relies on the active gallery-dl archive to skip completed items. This differs from Audio/Video and Webpage recovery, which can continue from the first URL not marked complete.
 
-After a successful direct or queued Image capture, **Copy Case Summary** provides a plain-text summary of submitted URLs, case and archive paths, file counts, gallery-dl version, templates, capture mode, metadata outputs, item limits, pacing, retries, timeout, concurrency, cookies, proxy, and VPN state. Its **▼** menu copies or exports Image-only captured and failed URLs for the case; failed-URL actions remain available after an unsuccessful run. Completed queue-job summaries can also be copied from the Job Queue.
+After a successful direct or queued Gallery/Profile capture, **Copy Case Summary** provides a plain-text summary of submitted URLs, case and archive paths, file counts, gallery-dl version, templates, capture mode, metadata outputs, item limits, pacing, retries, timeout, concurrency, cookies, proxy, and VPN state. Its **▼** menu copies or exports Gallery/Profile-only captured and failed URLs for the case; failed-URL actions remain available after an unsuccessful run. Completed queue-job summaries can also be copied from the Job Queue.
 
 Cookies, proxy settings, domain presets, and gallery-dl stable/dev update checks remain available. A cookies file can provide an approved session but cannot bypass login requirements, bot challenges, unsupported extractors, or source restrictions.
 
@@ -745,7 +755,7 @@ Every successful capture artifact and the Webpage run log are hashed. New manife
 
 After a successful direct or queued Webpage capture, **Copy Case Summary** provides a plain-text summary of case paths, tool/browser information, capture settings, evidence options, and completeness totals. Its **▼** menu copies or exports Webpage-only captured and failed URLs for the case. Completed queue-job summaries can also be copied from the Job Queue.
 
-Webpage recovery records completed URLs and their completeness classifications. Continuing an interrupted Webpage job resumes at the first URL not marked complete. Site design, authentication challenges, anti-automation controls, browser or endpoint policy, infinite/virtualized content, and Chromium's own image/PDF limits can still prevent a complete capture.
+Webpage recovery records original URL indexes and their completeness classifications. Continuing a failed or interrupted Webpage job submits only unresolved original URLs, even when earlier failures are followed by later successful captures. **Partial** results remain terminal for recovery and are not retried by Continue, while **Failed** results remain retryable. Site design, authentication challenges, anti-automation controls, browser or endpoint policy, infinite/virtualized content, and Chromium's own image/PDF limits can still prevent a complete capture.
 
 ### Job Queue, Persistence, and Recovery
 
@@ -755,19 +765,21 @@ The Job Queue runs staged work, manages concurrent captures, and resumes interru
 
 Recovery behaviour is engine-specific:
 
-- **Audio/Video Capture (`yt-dlp`)** records completed URL markers. Continuing an interrupted job submits the first incomplete URL and anything after it.
-- **Image Capture (`gallery-dl`)** uses archive-backed retry. Continuing an interrupted image job resubmits the original URLs and lets the case archive, or the image universal archive when enabled, skip completed items.
-- **Webpage Capture** records completed URL markers and per-URL **Complete**, **Complete with warnings**, **Partial**, or **Failed** classifications in its queue/recovery state. Continuing an interrupted job starts with the first webpage URL not marked complete. When Universal Download Archive is enabled, only previously **Complete** or **Complete with warnings** submitted/final redirected URLs are skipped across cases; **Partial** results are deliberately excluded from that cross-case suppression.
+- **Audio/Video Capture (`yt-dlp`)** records completed and failed original URL indexes. **Continue** on a failed or interrupted job submits only unresolved original URLs, so a failed URL is not followed by unnecessary reprocessing of later URLs that already completed successfully.
+- **Gallery/Profile Capture (`gallery-dl`)** uses archive-backed retry. Continuing a failed or interrupted Gallery/Profile job resubmits the original URLs and lets the case archive, or the Gallery/Profile universal archive when enabled, skip completed items.
+- **Webpage Capture** records original URL indexes plus per-URL **Complete**, **Complete with warnings**, **Partial**, or **Failed** classifications. **Continue** submits only unresolved original URLs and translates each run-local result back to its original URL index. **Partial** results are terminal for recovery and are not retried by Continue; **Failed** results remain retryable. When Universal Download Archive is enabled, only previously **Complete** or **Complete with warnings** submitted/final redirected URLs are skipped across cases; **Partial** results remain excluded from that cross-case suppression.
+
+Use the Job Queue context menu's **Continue Highlighted Failed/Interrupted** or **Continue Checked Failed/Interrupted** action to resume recoverable work. **Restart** still clears per-URL recovery progress and deliberately runs the job again from the beginning.
 
 Concurrent queue behaviour:
 
-- Audio/Video, Image Capture, and Webpage Capture have separate concurrent-capture limits. Each queued job keeps the limit captured when it was added; changing the GUI later does not retroactively change that job. When same-engine jobs have different limits, WAVI honours the most restrictive limit among the active job(s) and the candidate job.
+- Audio/Video, Gallery/Profile Capture, and Webpage Capture have separate concurrent-capture limits. Each queued job keeps the limit captured when it was added; changing the GUI later does not retroactively change that job. When same-engine jobs have different limits, WAVI honours the most restrictive limit among the active job(s) and the candidate job.
 - A direct capture occupies its engine's single direct slot until it finishes. Raising that engine's concurrency setting while the direct capture is already running does not cause a same-engine queued job to start beside it.
 - `yt-dlp`, `gallery-dl`, and Webpage Capture jobs may run at the same time when their domains do not collide.
 - Same-domain concurrent jobs trigger a collision prompt so users can continue, wait, or cancel.
 - **Pause After Active** lets all currently active queue jobs finish and then pauses pending work. **Stop Active Jobs** interrupts all currently active queue jobs and pauses the queue; direct capture Stop buttons affect only the direct capture on their own tab.
 
-Each recoverable job can write `manifests/gui-job-recovery-<job-id>.json` under the case folder. These files explain what the app tried to resume; they are not a replacement for the normal case manifest or review notes.
+Each recoverable job can write `manifests/gui-job-recovery-<job-id>.json` under the case folder. Recovery records include the original URL indexes submitted for the current run so sparse continuation remains reviewable. These files explain what the app tried to resume; they are not a replacement for the normal case manifest or review notes.
 
 ### Case Manifest Verification
 
@@ -779,13 +791,13 @@ Verification intentionally ignores `.gui-cache` and the `manifests` control fold
 
 ### Domain Presets, Proxy, VPN, and Archives
 
-- **Domain Presets** can apply capture settings automatically to matching Audio/Video or Image Capture URLs.
+- **Domain Presets** can apply capture settings automatically to matching Audio/Video or Gallery/Profile Capture URLs.
 - **Proxy Options** are app-level and can be passed to the capture scripts and Webpage Capture. Webpage Capture supports only proxies that do not require credentials.
 - **Check VPN** is disabled by default and warns before capture when enabled and the selected adapter does not look connected.
 - Case summaries snapshot the effective app-level proxy, VPN-check, and universal-archive state used when execution begins, so changing those controls while a capture is running does not rewrite the finished summary to describe a later GUI state.
 - **Universal Download Archive** uses separate app-level archive files:
   - `universal-download-archive.txt` for Audio/Video Capture
-  - `universal-gallerydl-archive.sqlite3` for Image Capture
+  - `universal-gallerydl-archive.sqlite3` for Gallery/Profile Capture
   - `universal-webcapture-archive.sqlite3` for Webpage Capture
 
 The Webpage Capture archive uses SQLite to store requested URLs, final redirected URLs, capture timestamps, case names, job IDs, capture-record paths, and capture history for **Complete** and **Complete with warnings** results. **Partial** results are not recorded there. Matching archived submitted or final URLs are skipped before navigation, and the case receives JSON/CSV skip reports under `manifests`. Universal archives are useful for avoiding repeat captures across cases, but they are not evidence artifacts for a specific case.
@@ -795,7 +807,7 @@ The Webpage Capture archive uses SQLite to store requested URLs, final redirecte
 The app has user-triggered update helpers for staged local tools:
 
 - **Check/Update yt-dlp** on the Audio/Video Capture tab
-- **Check/Update gallery-dl** on the Image Capture tab
+- **Check/Update gallery-dl** on the Gallery/Profile Capture tab
 - **Tools > Update Deno** for the detected local `deno.exe`
 
 The app does not auto-update tools on launch. Updates should be used only when approved for the environment.
@@ -824,10 +836,10 @@ Cookies can help with approved authenticated captures or previews, but they are 
 
 The app can:
 
-- use a selected cookies file for Audio/Video Capture, Image Capture, Webpage Capture, and Audio/Video Preview when enabled
+- use a selected cookies file for Audio/Video Capture, Gallery/Profile Capture, Webpage Capture, and Audio/Video Preview when enabled
 - export Mozilla Firefox cookies through yt-dlp's supported `--cookies-from-browser` flow
 - optionally encrypt or decrypt local cookies files
-- delete selected Audio/Video, Image Capture, and/or Webpage Capture cookies files on exit when configured
+- delete selected Audio/Video, Gallery/Profile Capture, and/or Webpage Capture cookies files on exit when configured
 
 The built-in exporter targets Mozilla Firefox only. Run WAVI as the same Windows user who is signed into Firefox, and close Firefox if profile locking prevents export. Chromium-based browser cookie export is not offered because it may require additional system-specific decryption setup. Cookies files produced by compatible browser extensions can still be selected manually.
 

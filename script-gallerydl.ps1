@@ -19,6 +19,8 @@
 
     [switch]$MetadataOnly,
 
+    [switch]$MediaOnly,
+
     [switch]$WriteMetadata,
 
     [switch]$WriteInfoJson,
@@ -32,6 +34,9 @@
     [Parameter(Mandatory = $false)]
     [ValidateSet("Fast", "Normal", "Cautious")]
     [string]$RateLimit = "Normal",
+
+    [Parameter(Mandatory = $false)]
+    [string]$IncludeKeywords,
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(0, 1000000)]
@@ -56,6 +61,10 @@
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($MetadataOnly -and $MediaOnly) {
+    throw "MetadataOnly and MediaOnly cannot be used together."
+}
 
 if ($PSScriptRoot) {
     $ScriptRoot = $PSScriptRoot
@@ -473,7 +482,7 @@ if (-not $Urls.Count) {
     throw "No URLs were found in InputFile."
 }
 
-Write-Section "Image Capture Setup"
+Write-Section "Gallery/Profile Capture Setup"
 Write-RunLog "gallery-dl path: $GalleryDlPath"
 Write-RunLog "Input file: $InputFile"
 Write-RunLog "Case folder: $CaseFolder"
@@ -487,10 +496,14 @@ if ($MetadataOnly) {
         Write-RunLog "Archive table: wavi_metadata (isolated from full-media archive records)"
     }
 }
+elseif ($MediaOnly) {
+    Write-RunLog "Capture mode: media only (metadata sidecars disabled)"
+}
 else {
-    Write-RunLog "Capture mode: download images/files and selected metadata"
+    Write-RunLog "Capture mode: media + selected metadata"
 }
 Write-RunLog "Rate limit: $RateLimit"
+Write-RunLog ("Include keywords: {0}" -f ($(if ([string]::IsNullOrWhiteSpace($IncludeKeywords)) { "(default extractor scope)" } else { $IncludeKeywords })))
 Write-RunLog "URL count: $($Urls.Count)"
 
 $BaseArgs = @(
@@ -503,9 +516,9 @@ $BaseArgs = @(
     "--windows-filenames"
 )
 
-if ($WriteMetadata) { $BaseArgs += "--write-metadata" }
-if ($WriteInfoJson) { $BaseArgs += "--write-info-json" }
-if ($WriteTags) { $BaseArgs += "--write-tags" }
+if (-not $MediaOnly -and $WriteMetadata) { $BaseArgs += "--write-metadata" }
+if (-not $MediaOnly -and $WriteInfoJson) { $BaseArgs += "--write-info-json" }
+if (-not $MediaOnly -and $WriteTags) { $BaseArgs += "--write-tags" }
 
 if ($ArchiveMode -eq "Use") {
     $BaseArgs += @("--download-archive", $ArchiveFileUsed)
@@ -536,6 +549,17 @@ switch ($RateLimit) {
     "Fast" { }
     "Normal" { $BaseArgs += @("--sleep", "1.0-3.0", "--sleep-request", "0.5-1.5", "--sleep-429", "60") }
     "Cautious" { $BaseArgs += @("--sleep", "3.0-8.0", "--sleep-request", "1.0-3.0", "--sleep-429", "120") }
+}
+
+if (-not [string]::IsNullOrWhiteSpace($IncludeKeywords)) {
+    $IncludeKeywordList = @(
+        ($IncludeKeywords -split '[,;\s]+' | ForEach-Object { $_.Trim().ToLowerInvariant() }) |
+        Where-Object { $_ -match '^[a-z0-9_-]+$' } |
+        Select-Object -Unique
+    )
+    if ($IncludeKeywordList.Count -gt 0) {
+        $BaseArgs += @("--option", ("include={0}" -f ($IncludeKeywordList -join ',')))
+    }
 }
 
 if (-not [string]::IsNullOrWhiteSpace($ItemRange)) {
@@ -757,7 +781,7 @@ else {
 
 Flush-GuiUrlRecords
 
-Write-Section "Image Capture Manifest"
+Write-Section "Gallery/Profile Capture Manifest"
 $CaseFiles = Get-ChildItem -LiteralPath $CaseFolder -File -Recurse -ErrorAction SilentlyContinue | Where-Object {
     $_.FullName -notlike "*\.gui-cache\*" -and $_.FullName -notlike "*\manifests\*"
 }
@@ -783,7 +807,7 @@ try {
         }
     }
 
-    Write-Section "Image Capture Summary"
+    Write-Section "Gallery/Profile Capture Summary"
     Write-RunLog "Submitted URLs: $($Urls.Count)"
     Write-RunLog "Completed URLs: $Completed"
     Write-RunLog "Failed URLs: $Failed"

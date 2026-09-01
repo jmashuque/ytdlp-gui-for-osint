@@ -2,6 +2,14 @@
 
 Notable user-facing changes to WAVI Capture GUI for OSINT are listed below.
 
+## [v3.2026.0831](https://github.com/jmashuque/wavi-capture-gui-for-osint/releases/tag/v3.2026.0831) - Profile Capture, Scope Controls, and Smarter Recovery
+
+- Renamed Image Capture to Gallery/Profile Capture and expanded its workflow around profile, timeline, gallery, album, post, and other supported gallery-dl media collection sources.
+- Added Gallery/Profile scope controls with selectable common keywords and custom comma-separated values, allowing supported gallery-dl extractors to target content such as posts, stories, reels, highlights, avatars, timelines, videos, tagged content, and other site-specific scopes.
+- Expanded Gallery/Profile capture modes with separate Media + selected metadata, Media only, and Metadata/artifacts only options.
+- Changed URL-box saving across Audio/Video, Gallery/Profile, and Webpage Capture to explicit Save As behaviour so the currently selected Input File is never silently overwritten.
+- Improved Audio/Video and Webpage recovery with sparse URL continuation, allowing failed or interrupted jobs to retry only unresolved original URLs while preserving completed results and Webpage per-URL classifications. Gallery/Profile jobs retain archive-backed retry behaviour.
+
 ## [v3.2026.0816](https://github.com/jmashuque/wavi-capture-gui-for-osint/releases/tag/v3.2026.0816) - Capture Reliability, Recovery, and Evidence Integrity
 
 - Improved Audio/Video and Image Capture failure handling so failed URLs and yt-dlp processing errors produce authoritative job results, while Image metadata-only captures now use the normal gallery-dl processing path without suppressing later media downloads.

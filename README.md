@@ -1,6 +1,6 @@
 # WAVI Capture GUI for OSINT
 
-A portable Windows GUI for approved audio/video/image and rendered webpage capture workflows using `yt-dlp`, `gallery-dl`, Deno, installed Chromium browsers, and companion scripts.
+A portable Windows GUI for running webpage, audio, video, and gallery/profile capture workflows for OSINT-style collection and review using `yt-dlp`, `gallery-dl`, Deno, installed Chromium browsers, and companion scripts.
 
 ## Table of Contents
 
@@ -19,7 +19,7 @@ A portable Windows GUI for approved audio/video/image and rendered webpage captu
   - [Capture a Webpage](#capture-a-webpage)
   - [Use the Job Queue](#use-the-job-queue)
   - [Review Capture Output](#review-capture-output)
-  - [Resume Interrupted Captures](#resume-interrupted-captures)
+  - [Resume Failed or Interrupted Captures](#resume-failed-or-interrupted-captures)
   - [Preview Audio/Video Links](#preview-audiovideo-links)
   - [Review a Case](#review-a-case)
 - [Advanced Usage](#advanced-usage)
@@ -38,15 +38,15 @@ A portable Windows GUI for approved audio/video/image and rendered webpage captu
 
 ## Overview
 
-`Webpage/Audio/Video/Gallery/Profile Capture GUI for OSINT` (`WAVI Capture GUI for OSINT`) is a local, portable interface for repeatable capture work in managed environments.
+`Webpage/Audio/Video/Image Capture GUI for OSINT` (`WAVI Capture GUI for OSINT`) is a local, portable interface for repeatable capture work in managed environments.
 
 The app has seven main tabs:
 
 - **Audio/Video Capture** for `yt-dlp` captures.
 - **Gallery/Profile Capture** for `gallery-dl` captures.
-- **Webpage Capture** for rendered webpage images, optional PDFs, and bounded interactive-item capture.
+- **Webpage Capture** for Chromium browser-based captures using Deno.
 - **Job Queue** for staged, concurrent, and recoverable jobs.
-- **Output Log** for live Audio/Video, Image, Webpage, or combined capture output.
+- **Output Log** for live Audio/Video, Gallery/Profile, Webpage, or combined capture output.
 - **Audio/Video Preview** for metadata, thumbnails, playlist/context review, and queueing from preview results.
 - **Case Browser** for local review, thumbnails, metadata, and hash verification.
 
@@ -56,7 +56,7 @@ The app does not bundle capture tools or make authorization decisions. Tools, cr
 
 <p align="center">
   <img src="/screenshots/main1.png" alt="audio/video capture tab" width="31%">
-  <img src="/screenshots/main2.png" alt="Gallery/Profile Capture tab" width="31%">
+  <img src="/screenshots/main2.png" alt="gallery/profile capture tab" width="31%">
   <img src="/screenshots/main3.png" alt="webpage capture tab" width="31%">
 </p>
 
@@ -85,12 +85,11 @@ The app helps users:
 - prepare URL lists or input files
 - run preflight checks for required local tools
 - capture audio/video with `yt-dlp`
-- capture image/gallery content with `gallery-dl`
-- capture full-page, initial-viewport, or combined webpage images as PNG, JPEG, or WebP through an isolated installed Chromium-family browser
-- record webpage capture metadata, redirects, dimensions, warnings, hashes, segmented fallbacks for oversized pages, and optional interactive-overlay capture reports
+- capture profile/timeline and other supported media collections with `gallery-dl`
+- capture rendered webpages through an isolated installed Chromium-family browser with Deno
 - organize output into case folders
 - apply case names, filename templates, cookies, proxy settings, pacing, archive, and metadata options
-- queue multiple jobs and recover interrupted work when Job Persistence is enabled
+- queue multiple jobs and recover failed or interrupted work when Job Persistence is enabled
 - preview audio/video metadata and thumbnails before capture
 - browse local case files and verify SHA-256 manifests
 
@@ -233,7 +232,7 @@ Do this once before the first capture, or whenever you prepare a fresh copy of W
    - **Output Root** is the parent folder where case folders will be created. It must be a writable folder; WAVI creates it when possible and checks write access before a capture is staged or started.
    - **Case Name** becomes the case subfolder. WAVI rejects resolved names that Windows reserves for devices, or that end in a space or period.
    - **Filename Template** controls names and subfolders inside the case.
-   - The optional `%engine%` tag resolves to `audio-video`, `image`, or `webpage`, allowing shared Output Roots or templates to identify the capture source. Existing defaults do not use this tag.
+   - The optional `%engine%` tag resolves to `audio-video`, `image`, or `webpage`, allowing shared Output Roots or templates to identify the capture source.
    - The **URL box** accepts one URL per line.
    - **Input File(s)** accepts text files containing one URL per line.
 
@@ -241,7 +240,7 @@ Do this once before the first capture, or whenever you prepare a fresh copy of W
 
    Every capture tab has the same twelve URL-box tools:
 
-   - **Load**, **Append**, **Save As**, **Clear**, and **Copy** manage the URL text. **Save As** always opens a file picker instead of automatically overwriting the currently selected Input File; the file you save becomes the selected Input File for that capture tab.
+   - **Load**, **Append**, **Save As**, **Clear**, and **Copy** manage the URL text. **Save As** opens a file picker, and the file you save becomes the selected Input File for that capture tab.
    - **Failed** shows failed URLs from the current Output Root that match the current URL set; the button changes to **All** so the original set can be restored.
    - **Group** organizes URLs under domain headings, and **Statistics** shows totals by domain.
    - **Normalize**, **Duplicates**, and **Validate** clean or inspect the URL source.
@@ -290,7 +289,7 @@ The default Webpage workflow creates a full-page PNG using a new isolated browse
 4. Run **Preflight Check**. This confirms that Deno and the selected browser can start correctly in WAVI's isolated capture environment.
 5. Start the capture and review the image, webpage capture record (`.webcapture.json`), run log, and SHA-256 manifest. Review any **Complete with warnings**, **Partial**, or **Failed** classification before treating the capture as complete. After a successful run, **Copy Case Summary** includes the classification totals along with the case paths, tools, and selected Webpage options.
 
-Webpage Capture does not dismiss consent banners, sign in, solve MFA/CAPTCHA challenges, submit forms, or provide unrestricted browsing. The optional **Interactive Overlays** feature can open and capture a limited number of likely gallery, media, or post items that match its safety rules; it remains disabled by default. An approved cookies file can be selected when required, but cookie use remains disabled by default. See [Advanced Webpage Capture](#webpage-capture) for readiness, scrolling, browser environment, interactive capture, evidence outputs, PDFs, and long-page controls.
+Webpage Capture does not dismiss consent banners, sign in, solve MFA/CAPTCHA challenges, submit forms, or provide unrestricted browsing. The optional **Interactive Overlays** feature can open and capture a limited number of likely gallery, media, or post items that match its safety rules; it remains disabled by default. An approved cookies file can be selected when required. See [Advanced Webpage Capture](#webpage-capture) for readiness, scrolling, browser environment, interactive capture, evidence outputs, PDFs, and long-page controls.
 
 ### Use the Job Queue
 
@@ -302,24 +301,24 @@ Use **Job Queue** when you want to prepare several captures before running them.
 4. Leave the app open while the queue runs.
 5. Review failed or interrupted jobs after the run.
 
-The Job Queue is also where interrupted work is resumed when **Job Persistence** is enabled.
+The Job Queue is also where failed or interrupted work is resumed when **Job Persistence** is enabled.
 
 ### Review Capture Output
 
 Use **Output Log** to review live direct or queued capture output for one capture engine or **All Engines**. The durable case logs remain under each case folder regardless of what is cleared from **Output Log**.
 
-### Resume Interrupted Captures
+### Resume Failed or Interrupted Captures
 
-If the app closes, crashes, or a capture is stopped while **Job Persistence** is enabled, reopen the app and go to **Job Queue**. The interrupted capture should appear with an **Interrupted** status.
+If the app closes, crashes, or a capture is stopped while **Job Persistence** is enabled, reopen the app and go to **Job Queue**. The interrupted capture should appear with an **Interrupted** status. A capture that finishes with retryable URL failures can instead appear as **Failed**. Both Failed and Interrupted jobs can be eligible for **Continue**.
 
 To resume it:
 
 1. Open **Job Queue**.
-2. Select the interrupted job.
-3. Use **Continue Checked Interrupted** or right-click the highlighted job and choose **Continue Highlighted Interrupted**.
+2. Select the failed or interrupted job.
+3. Use **Continue Checked Failed/Interrupted** or right-click the highlighted job and choose **Continue Highlighted Failed/Interrupted**.
 4. Leave the app open while the resumed queue job runs.
 
-Direct captures are saved for recovery only when **Job Persistence** is enabled. Audio/Video and Webpage jobs continue from the first URL not marked complete. Gallery/Profile jobs safely re-check the original URL list and use the selected gallery-dl archive to skip items already completed.
+Direct captures are saved for recovery only when **Job Persistence** is enabled. Audio/Video and Webpage jobs submit only unresolved original URLs, so later URLs that already completed are not unnecessarily reprocessed. Gallery/Profile jobs safely re-check the original URL list and use the selected gallery-dl archive to skip items already completed.
 
 ### Preview Audio/Video Links
 
@@ -336,7 +335,7 @@ Preview is best-effort. It can be incomplete or slow depending on the site, cook
 
 Use **Case Browser** to review local case output.
 
-- Case Browser follows the Output Root of the most recently completed direct or queued capture. Before a capture completes in the current session, it uses the Audio/Video Output Root; changing that field also makes it the current Case Browser root.
+- Case Browser reviews cases under the current capture Output Root.
 - Filter or sort case files.
 - Open case folders or individual files.
 - Verify the SHA-256 manifests generated by captures.
@@ -373,7 +372,7 @@ Recommended layout:
 
 ### Output Log
 
-The **Output Log** tab shows live direct and queued capture output. The **Engine** selector provides **Audio/Video**, **Image**, **Webpage**, and **All Engines** views. The combined view merges records in timestamp order.
+The **Output Log** tab shows live direct and queued capture output. The **Engine** selector provides **Audio/Video**, **Gallery/Profile**, **Webpage**, and **All Engines** views. The combined view merges records in timestamp order.
 
 - **Follow output** scrolls to new messages. Disable it while reviewing earlier output.
 - **Copy Visible** uses WAVI's shared clipboard safeguards and refuses oversized content without truncating or replacing the current clipboard.
@@ -382,7 +381,7 @@ The **Output Log** tab shows live direct and queued capture output. The **Engine
 
 ### Audio/Video Capture
 
-Audio/Video Capture uses `script-ytdlp.ps1`, `yt-dlp.exe`, Deno where required by supported extractors, and FFmpeg/FFprobe. The URL box takes priority over selected Input File(s). Output is written beneath `<Output Root>\<Case Name>\media` using the selected template. WAVI passes `--ignore-config` for capture runs so unrelated yt-dlp configuration files cannot silently change the capture's output, proxy, archive, or other command-line behaviour.
+Audio/Video Capture uses `script-ytdlp.ps1`, `yt-dlp.exe`, Deno where required by supported extractors, and FFmpeg/FFprobe. The URL box takes priority over selected Input File(s). Output is written beneath `<Output Root>\<Case Name>\media` using the selected template. Capture runs use `--ignore-config`, so yt-dlp settings come from the WAVI job rather than external yt-dlp configuration files.
 
 **Capture mode**
 
@@ -440,20 +439,19 @@ Embed choices include metadata, cover art, subtitles, chapters, and info JSON fo
 - **Ignore archive for this run** does not use the case archive for duplicate avoidance.
 - **Force re-capture** deliberately requests another copy even when the item is already archived.
 
-When app-level **Universal Download Archive** is enabled, WAVI also uses `universal-download-archive.txt` for cross-case skipping. WAVI serializes Audio/Video executions that actually use this shared archive so their per-case archive synchronization cannot attribute another concurrent run's new archive entries to the wrong case. Audio/Video runs that do not use the universal archive retain their configured concurrency. An archive skip confirms a previous archive record; it does not mean the current case contains a fresh copy.
+When app-level **Universal Download Archive** is enabled, WAVI also uses `universal-download-archive.txt` for cross-case skipping. Audio/Video jobs that use this shared archive run serially; jobs that do not use it follow their configured concurrency. An archive skip confirms a previous archive record; it does not mean the current case contains a fresh copy.
 
 **Dates, title filters, and impersonation**
 
 - **Date after** and **Date before** restrict supported sources by upload date.
 - **Only capture titles matching** and **Reject titles matching** accept comma-separated keywords and build safe case-insensitive title filters.
-- **Impersonate Target** is populated from the usable targets reported by the selected `yt-dlp.exe`; WAVI no longer assumes Chrome, Edge, or Firefox are available. Use **Check Targets** before selecting impersonation because availability depends on the installed yt-dlp build and local dependencies.
+- **Impersonate Target** is populated from the usable targets reported by the selected `yt-dlp.exe`. Use **Check Targets** before selecting impersonation because availability depends on the installed yt-dlp build and local dependencies.
 - After a successful check, **Any available** lets yt-dlp choose any usable impersonation target, while entries such as **Chrome (automatic)** let yt-dlp choose among the available fingerprints for that client family. Enable **Show specific targets** and check again to expose exact client/OS fingerprints such as `chrome-136:macos-15`. The OS in a specific target is the environment being impersonated, not the operating system running WAVI.
-- WAVI does not force a separate Chrome User-Agent or `en-US` language header onto yt-dlp capture/preview requests. This avoids contradicting a selected impersonation target and leaves request identity/language handling to yt-dlp, its extractor, and the active impersonation handler.
 - Impersonation does not bypass authentication or authorization controls and can affect download speed or stability.
 
 **Failure handling and concurrency**
 
-- **Continue after failed URL** keeps WAVI's submitted-URL loop running after a failed yt-dlp invocation. The failed invocation remains a failure; WAVI does not broadly suppress yt-dlp download or post-processing errors to continue the batch.
+- **Continue after failed URL** keeps processing later submitted URLs after a failed yt-dlp invocation.
 - **Stop on first failed URL** ends the run after the first failed URL.
 - **Concurrent Captures** controls separate active Audio/Video queue jobs, from 1 to 4. WAVI still checks for same-domain collisions.
 - **Concurrent Fragments** controls parallel fragment downloads inside one yt-dlp job, from 1 to 8. This is different from queue concurrency and can increase load on the source and local network.
@@ -507,13 +505,13 @@ Cookies, proxy settings, domain presets, VPN checks, and the universal archive a
 
 ### Gallery/Profile Capture
 
-Gallery/Profile Capture uses `script-gallerydl.ps1` and `gallery-dl.exe`. Its primary purpose is supported profile and timeline capture, where one submitted profile URL can expand to many media items. It also supports individual posts, galleries, albums, and other media collections handled by the active gallery-dl extractor. Captured media can include images, video, and other supported files. The URL box takes priority over Input File(s). The filename template is relative to the case `media` folder; case tags resolve when the job is created, while gallery-dl fields such as category, subcategory, ID, filename, and extension resolve per item. WAVI passes `--config-ignore` so default gallery-dl configuration files cannot silently override the capture settings selected in WAVI.
+Gallery/Profile Capture uses `script-gallerydl.ps1` and `gallery-dl.exe`. Its primary purpose is supported profile and timeline capture, where one submitted profile URL can expand to many media items. It also supports individual posts, galleries, albums, and other media collections handled by the active gallery-dl extractor. Captured media can include images, video, and other supported files. The URL box takes priority over Input File(s). The filename template is relative to the case `media` folder; case tags resolve when the job is created, while gallery-dl fields such as category, subcategory, ID, filename, and extension resolve per item. Capture runs use `--config-ignore`, so gallery-dl settings come from the WAVI job rather than external gallery-dl configuration files.
 
 **Capture mode**
 
 - **Media + selected metadata** downloads supported media and writes the enabled metadata sidecars.
-- **Media only; ignore metadata options** downloads supported media without the metadata JSON, profile/gallery info JSON, or tags sidecars. The metadata-sidecar controls are disabled while this mode is selected.
-- **Metadata/artifacts only; do not download media** runs gallery-dl's normal extraction and selected metadata postprocessors while disabling the media download itself. Native extractor failures therefore remain visible as failures, and enabled metadata JSON, profile/gallery info JSON, and tags outputs follow the same processing path used by a normal Gallery/Profile capture.
+- **Media only; ignore metadata options** downloads supported media without the metadata JSON, profile/gallery info JSON, or tags sidecars.
+- **Metadata/artifacts only; do not download media** runs gallery-dl extraction and the selected metadata postprocessors while disabling media download.
 
 **Metadata sidecars**
 
@@ -545,7 +543,7 @@ Extractor support varies by site. A keyword that is meaningful for one extractor
 - **Ignore archive for this run** performs the run without archive-based skipping or recording for that run.
 - **Force re-capture** passes gallery-dl's no-skip behaviour so matching files can be collected again deliberately.
 
-When app-level **Universal Download Archive** is enabled, Gallery/Profile Capture uses `universal-gallerydl-archive.sqlite3` for cross-case duplicate avoidance instead of the case archive. Metadata/artifacts-only runs keep their archive entries in a separate `wavi_metadata` table inside the selected SQLite archive, so metadata-only collection cannot make a later full-media capture skip the same item as already downloaded. Archive records identify prior successful items; they are not substitutes for artifacts in the current case.
+When app-level **Universal Download Archive** is enabled, Gallery/Profile Capture uses `universal-gallerydl-archive.sqlite3` for cross-case duplicate avoidance. Metadata/artifacts-only archive entries are tracked separately from media-download entries, so a metadata-only capture does not mark media as already downloaded. Archive records identify prior successful items; they are not substitutes for artifacts in the current case.
 
 **Pacing presets**
 
@@ -592,7 +590,7 @@ Typical output:
 
 The Gallery/Profile manifest hashes eligible case evidence outside the `.gui-cache` and `manifests` control folders. Manifest paths are recorded relative to the case folder so verification does not depend on the case remaining under its original Output Root.
 
-Gallery/Profile recovery is archive-backed: continuing an interrupted Gallery/Profile job resubmits the original URLs and relies on the active gallery-dl archive to skip completed items. This differs from Audio/Video and Webpage recovery, which can continue from the first URL not marked complete.
+Gallery/Profile recovery is archive-backed: continuing a failed or interrupted Gallery/Profile job resubmits the original URLs and relies on the active gallery-dl archive to skip completed items. This differs from Audio/Video and Webpage recovery, which submits only unresolved original URLs.
 
 After a successful direct or queued Gallery/Profile capture, **Copy Case Summary** provides a plain-text summary of submitted URLs, case and archive paths, file counts, gallery-dl version, templates, capture mode, metadata outputs, item limits, pacing, retries, timeout, concurrency, cookies, proxy, and VPN state. Its **▼** menu copies or exports Gallery/Profile-only captured and failed URLs for the case; failed-URL actions remain available after an unsuccessful run. Completed queue-job summaries can also be copied from the Job Queue.
 
@@ -614,7 +612,7 @@ Webpage Capture uses `script-webcapture.ps1`, `script-webcapture.ts`, `deno.exe`
 
 **PNG** is lossless and is the recommended default. **JPEG** and **WebP** can reduce file size when lossy output is acceptable; their **Quality** setting does not apply to PNG. **Captured PNG (visual match)** PDF output requires PNG.
 
-**Capture retries** can re-open a URL after a visual-capture failure. **Concurrent captures** controls separate active Webpage Capture jobs and is intentionally limited; Job Queue same-domain collision checks still apply. Raising concurrency can increase load on the source, browser, and local system.
+**Capture retries** can re-open a URL after a visual-capture failure. **Concurrent captures** controls separate active Webpage Capture jobs; Job Queue same-domain collision checks still apply. Raising concurrency can increase load on the source, browser, and local system.
 
 **Readiness and page conditions**
 
@@ -648,7 +646,7 @@ Optional visual controls can make highly animated or sticky pages easier to pres
 - **Hide scrollbars** removes visible scrollbars from the captured image.
 - **Fixed/sticky** can **Preserve** the site layout, **Neutralize** qualifying fixed/sticky positioning, or **Hide likely navigation** overlays.
 
-These settings intentionally change the rendered presentation and are recorded in the webpage capture record. Leave them at their defaults when an unmodified rendered view is more important than reducing repeated or obstructive page elements. Live Page PDF has its own separate layout control.
+These settings change the rendered presentation and are recorded in the webpage capture record. Leave them at their defaults when an unmodified rendered view is more important than reducing repeated or obstructive page elements. Live Page PDF has its own separate layout control.
 
 **Environment and page state**
 
@@ -751,7 +749,7 @@ Typical output:
     sha256-manifest-web_<timestamp>.csv
 ```
 
-Every successful capture artifact and the Webpage run log are hashed. New manifest records use case-relative paths. The `.gui-cache` and `manifests` control folders are outside the evidence-manifest scope, so manifest CSVs, recovery records, archives, and universal-archive skip reports are not recursively hashed by another manifest. The `.webcapture.json` record documents the requested and final URLs, page title, browser and capture settings, readiness/scrolling outcomes, generated artifacts, hashes, warnings, and final completeness classification. When Universal Download Archive is enabled, **Complete** and **Complete with warnings** requested and redirected URLs can also be recorded in `universal-webcapture-archive.sqlite3` for cross-case skipping; **Partial** results remain terminal for recovery but are not added to the universal archive, so they cannot suppress a later cross-case capture. Skip reports are written under `manifests`.
+Every successful capture artifact and the Webpage run log are hashed. New manifest records use case-relative paths. The `.gui-cache` and `manifests` control folders are outside the evidence-manifest scope. The `.webcapture.json` record documents the requested and final URLs, page title, browser and capture settings, readiness/scrolling outcomes, generated artifacts, hashes, warnings, and final completeness classification. When Universal Download Archive is enabled, **Complete** and **Complete with warnings** requested and redirected URLs can also be recorded in `universal-webcapture-archive.sqlite3` for cross-case skipping; **Partial** results remain terminal for recovery but are not added to the universal archive, so they cannot suppress a later cross-case capture. Skip reports are written under `manifests`.
 
 After a successful direct or queued Webpage capture, **Copy Case Summary** provides a plain-text summary of case paths, tool/browser information, capture settings, evidence options, and completeness totals. Its **▼** menu copies or exports Webpage-only captured and failed URLs for the case. Completed queue-job summaries can also be copied from the Job Queue.
 
@@ -759,7 +757,7 @@ Webpage recovery records original URL indexes and their completeness classificat
 
 ### Job Queue, Persistence, and Recovery
 
-The Job Queue runs staged work, manages concurrent captures, and resumes interrupted jobs. It supports `yt-dlp`, `gallery-dl`, and Webpage Capture jobs.
+The Job Queue runs staged work, manages concurrent captures, and resumes recoverable failed or interrupted jobs. It supports `yt-dlp`, `gallery-dl`, and Webpage Capture jobs.
 
 **Job Persistence** controls whether queue state is saved to `gui-jobs.json`. When it is enabled, queued jobs and direct captures are saved while they run. If a running job is still present when the app reopens, it is treated as interrupted and can be continued from the Job Queue. When Job Persistence is disabled, direct captures are not recoverable through the app after a close or crash.
 
@@ -767,14 +765,13 @@ Recovery behaviour is engine-specific:
 
 - **Audio/Video Capture (`yt-dlp`)** records completed and failed original URL indexes. **Continue** on a failed or interrupted job submits only unresolved original URLs, so a failed URL is not followed by unnecessary reprocessing of later URLs that already completed successfully.
 - **Gallery/Profile Capture (`gallery-dl`)** uses archive-backed retry. Continuing a failed or interrupted Gallery/Profile job resubmits the original URLs and lets the case archive, or the Gallery/Profile universal archive when enabled, skip completed items.
-- **Webpage Capture** records original URL indexes plus per-URL **Complete**, **Complete with warnings**, **Partial**, or **Failed** classifications. **Continue** submits only unresolved original URLs and translates each run-local result back to its original URL index. **Partial** results are terminal for recovery and are not retried by Continue; **Failed** results remain retryable. When Universal Download Archive is enabled, only previously **Complete** or **Complete with warnings** submitted/final redirected URLs are skipped across cases; **Partial** results remain excluded from that cross-case suppression.
+- **Webpage Capture** records original URL indexes plus per-URL **Complete**, **Complete with warnings**, **Partial**, or **Failed** classifications. **Continue** submits only unresolved original URLs. **Partial** results are terminal for recovery and are not retried by Continue; **Failed** results remain retryable. When Universal Download Archive is enabled, only previously **Complete** or **Complete with warnings** submitted/final redirected URLs are skipped across cases; **Partial** results remain excluded from that cross-case suppression.
 
 Use the Job Queue context menu's **Continue Highlighted Failed/Interrupted** or **Continue Checked Failed/Interrupted** action to resume recoverable work. **Restart** still clears per-URL recovery progress and deliberately runs the job again from the beginning.
 
 Concurrent queue behaviour:
 
-- Audio/Video, Gallery/Profile Capture, and Webpage Capture have separate concurrent-capture limits. Each queued job keeps the limit captured when it was added; changing the GUI later does not retroactively change that job. When same-engine jobs have different limits, WAVI honours the most restrictive limit among the active job(s) and the candidate job.
-- A direct capture occupies its engine's single direct slot until it finishes. Raising that engine's concurrency setting while the direct capture is already running does not cause a same-engine queued job to start beside it.
+- Audio/Video, Gallery/Profile Capture, and Webpage Capture have separate concurrent-capture limits. For same-engine queued work, WAVI honours the most restrictive applicable limit.
 - `yt-dlp`, `gallery-dl`, and Webpage Capture jobs may run at the same time when their domains do not collide.
 - Same-domain concurrent jobs trigger a collision prompt so users can continue, wait, or cancel.
 - **Pause After Active** lets all currently active queue jobs finish and then pauses pending work. **Stop Active Jobs** interrupts all currently active queue jobs and pauses the queue; direct capture Stop buttons affect only the direct capture on their own tab.
@@ -783,18 +780,17 @@ Each recoverable job can write `manifests/gui-job-recovery-<job-id>.json` under 
 
 ### Case Manifest Verification
 
-Case Browser recognizes Audio/Video, Image, and Webpage SHA-256 manifest CSVs. **Verify Case Files** combines all recognized manifests in the selected case instead of checking only the newest file. When more than one manifest records the same case file, the newest applicable record supplies the expected current hash. This allows run-scoped manifests from later captures to update individual files without discarding coverage recorded by earlier manifests.
+Case Browser recognizes Audio/Video, Gallery/Profile, and Webpage SHA-256 manifest CSVs. **Verify Case Files** combines all recognized manifests in the selected case. When more than one manifest records the same case file, the newest applicable record supplies the expected current hash.
 
 New manifests use case-relative paths. Case Browser also understands the older absolute-path A/V/Webpage format and the older Image `SHA256`/`RelativePath` column format. When a legacy absolute-path case has been moved as a complete case folder, Case Browser attempts to resolve the recorded path back inside the currently selected case rather than reading files outside that case.
 
-Verification intentionally ignores `.gui-cache` and the `manifests` control folder. Those locations contain derived display cache, manifest CSVs, mutable recovery state, case archive data, and skip/control reports rather than the primary captured evidence covered by the evidence manifests. Files elsewhere in the case that are not represented by any recognized manifest are reported as new/untracked. Hash verification confirms byte-level agreement with the recorded SHA-256 values; it does not determine authenticity, context, or evidentiary sufficiency.
+Verification excludes `.gui-cache` and the `manifests` control folder, which contain display cache and capture-control data outside the evidence-manifest scope. Files elsewhere in the case that are not represented by any recognized manifest are reported as new/untracked. Hash verification confirms byte-level agreement with the recorded SHA-256 values; it does not determine authenticity, context, or evidentiary sufficiency.
 
 ### Domain Presets, Proxy, VPN, and Archives
 
 - **Domain Presets** can apply capture settings automatically to matching Audio/Video or Gallery/Profile Capture URLs.
 - **Proxy Options** are app-level and can be passed to the capture scripts and Webpage Capture. Webpage Capture supports only proxies that do not require credentials.
 - **Check VPN** is disabled by default and warns before capture when enabled and the selected adapter does not look connected.
-- Case summaries snapshot the effective app-level proxy, VPN-check, and universal-archive state used when execution begins, so changing those controls while a capture is running does not rewrite the finished summary to describe a later GUI state.
 - **Universal Download Archive** uses separate app-level archive files:
   - `universal-download-archive.txt` for Audio/Video Capture
   - `universal-gallerydl-archive.sqlite3` for Gallery/Profile Capture
@@ -826,11 +822,11 @@ Common state files:
 
 The **Default** profile is used initially. Changes are saved to the active profile. Use **Profile > Save Current Settings to Profile...** to create a new profile or deliberately overwrite an existing one.
 
-`python gui.py --fresh` clears app settings/state files, Job Queue persistence, URL-box persistence, app-owned temp files, the app debug log, universal archives, GUI cache folders under known Output Roots. It does not delete captured case folders, media files, cookies, binaries, scripts, case logs, manifests, or case-specific capture archives. **Settings > Clear URL History** checks the currently configured Audio/Video, Image, and Webpage Output Roots and removes only their GUI captured/failed URL history files after confirmation.
+`python gui.py --fresh` clears app settings/state files, Job Queue persistence, URL-box persistence, app-owned temp files, the app debug log, universal archives, GUI cache folders under known Output Roots. It does not delete captured case folders, media files, cookies, binaries, scripts, case logs, manifests, or case-specific capture archives. **Settings > Clear URL History** checks the currently configured Audio/Video, Gallery/Profile, and Webpage Output Roots and removes only their GUI captured/failed URL history files after confirmation.
 
 ## Cookies Handling
 
-Cookies File use is disabled by default. When **Use** is enabled for a capture tab, WAVI requires a selected, existing cookies file instead of silently continuing without one.
+When **Use** is enabled for a capture tab, select an existing cookies file.
 
 Cookies can help with approved authenticated captures or previews, but they are sensitive operational data. Cookie use does not guarantee access to restricted, private, expired, challenge-protected, or unsupported content.
 
@@ -841,7 +837,7 @@ The app can:
 - optionally encrypt or decrypt local cookies files
 - delete selected Audio/Video, Gallery/Profile Capture, and/or Webpage Capture cookies files on exit when configured
 
-The built-in exporter targets Mozilla Firefox only. Run WAVI as the same Windows user who is signed into Firefox, and close Firefox if profile locking prevents export. Chromium-based browser cookie export is not offered because it may require additional system-specific decryption setup. Cookies files produced by compatible browser extensions can still be selected manually.
+The built-in exporter supports Mozilla Firefox only. Run WAVI as the same Windows user who is signed into Firefox, and close Firefox if profile locking prevents export. Cookies files produced by compatible browser extensions can still be selected manually.
 
 The app does not collect credentials or automate website logins. Webpage Capture accepts standard Netscape cookies files and records counts rather than cookie names or values. **Requested site only** is the default and imports cookies applicable to the submitted hostname. **Entire cookies file** loads every valid row into the isolated temporary browser for redirect and SSO compatibility, which may make authenticated cookies available to additional matching domains contacted during the capture. Cookies do not include local storage, IndexedDB, service-worker state, device-bound tokens, or every modern partitioned-cookie attribute, so some authenticated sites may still fail.
 

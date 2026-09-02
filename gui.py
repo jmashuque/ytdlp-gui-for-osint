@@ -32,8 +32,9 @@ from datetime import datetime, timezone
 from tkinter import filedialog, messagebox, scrolledtext, ttk, simpledialog
 
 
-APP_TITLE = "WAVI Capture GUI for OSINT"
-APP_VERSION = "v3.2026.0831"
+APP_TITLE = "Webpage/Audio/Video/Image Capture GUI for OSINT"
+APP_WINDOW_TITLE = "WAVI Capture GUI for OSINT"
+APP_VERSION = "v3.2026.0902"
 APP_RELEASES_LATEST_URL = "https://github.com/jmashuque/wavi-capture-gui-for-osint/releases/latest"
 APP_WINDOW_WIDTH = 1180
 APP_WINDOW_DEFAULT_HEIGHT = 790
@@ -1594,7 +1595,7 @@ def clear_output_log_display():
     if selected == "All Engines":
         if not messagebox.askyesno(
             "Clear all output displays",
-            "Clear the in-memory output display for Audio/Video, Image, and Webpage Capture?\n\n"
+            "Clear the in-memory output display for Audio/Video, Gallery/Profile, and Webpage Capture?\n\n"
             "This does not delete case log files or stop any capture.",
             parent=root,
         ):
@@ -2191,7 +2192,7 @@ def update_window_title():
     except Exception:
         pass
 
-    root.title(f"{APP_TITLE} - Profile: {profile_name}")
+    root.title(f"{APP_WINDOW_TITLE} - Profile: {profile_name}")
 
 
 def normalize_impersonate_target(value):
@@ -3637,7 +3638,7 @@ def build_web_case_summary_text(exit_code, submitted_url_count, paths, versions,
 def copy_image_case_summary():
     copy_text_to_clipboard(
         last_successful_image_case_summary,
-        label="Image case summary",
+        label="Gallery/Profile case summary",
         log_func=image_append_log,
         empty_message="No successful Gallery/Profile Capture case summary is available yet.",
     )
@@ -4376,11 +4377,11 @@ def set_image_url_box_text_silent(content):
 
 
 def load_image_url_box_persistence_if_enabled():
-    return load_url_box_persistence_file(IMAGE_URL_BOX_PERSISTENCE_FILE, set_image_url_box_text_silent, image_append_log, "Image URL Box")
+    return load_url_box_persistence_file(IMAGE_URL_BOX_PERSISTENCE_FILE, set_image_url_box_text_silent, image_append_log, "Gallery/Profile URL Box")
 
 
 def save_image_url_box_persistence_if_enabled():
-    save_url_box_persistence_file(IMAGE_URL_BOX_PERSISTENCE_FILE, image_urls_text, image_append_log, "Image URL Box")
+    save_url_box_persistence_file(IMAGE_URL_BOX_PERSISTENCE_FILE, image_urls_text, image_append_log, "Gallery/Profile URL Box")
 
 
 def read_valid_image_input_files_for_url_box_silent():
@@ -5660,7 +5661,17 @@ def prepare_queue_job_for_continue(job):
                 str(record.get("classification", "") or "").strip().lower() == "partial"
                 for record in records.values()
             )
-        if not has_terminal_partial:
+
+        # A Failed job can represent a run-level failure after every URL already
+        # reached a terminal state. Continue must not erase that authoritative
+        # failure merely because there are no URL indexes left to retry.
+        if str(job.get("status", "") or "").strip().lower() == "failed":
+            if has_terminal_partial:
+                job["interrupted_reason"] = (
+                    "No retryable URLs remain. Partial Webpage results are terminal for recovery "
+                    "but remain classified as Partial."
+                )
+        elif not has_terminal_partial:
             job["status"] = "completed"
             job["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             job["exit_code"] = "0"
@@ -7552,7 +7563,7 @@ def get_universal_archive_status(engine, settings=None):
     app_enabled = bool(settings.get("_runtime_universal_archive_enabled", app_universal_archive_enabled()))
 
     if normalized_engine in {"gallery-dl", "image", "image-capture"}:
-        label = "Image universal archive"
+        label = "Gallery/Profile universal archive"
         path = IMAGE_UNIVERSAL_ARCHIVE_FILE
         mode = str(settings.get("image_archive_mode", image_archive_mode_var.get() or DEFAULTS["image_archive_mode"]) or "use").lower()
         effective = bool(app_enabled and mode == "use")
@@ -7594,7 +7605,7 @@ def get_app_settings_summary_lines():
         f"Check VPN: {vpn_state}",
         f"Job persistence: {persistence_state}",
         f"URL box persistence: {url_box_state}",
-        f"Universal download archive: {universal_archive_state} (uses separate Audio/Video, Image, and Webpage archives)",
+        f"Universal download archive: {universal_archive_state} (uses separate Audio/Video, Gallery/Profile, and Webpage archives)",
         format_universal_archive_status_line("yt-dlp"),
         format_universal_archive_status_line("gallery-dl"),
         format_universal_archive_status_line("web-capture"),
@@ -9096,7 +9107,7 @@ def toggle_url_box_persistence_setting():
         save_web_url_box_persistence_if_enabled()
         append_log(f"URL box contents saved to: {URL_BOX_PERSISTENCE_FILE}\n")
         try:
-            image_append_log(f"Image URL box contents saved to: {IMAGE_URL_BOX_PERSISTENCE_FILE}\n")
+            image_append_log(f"Gallery/Profile URL box contents saved to: {IMAGE_URL_BOX_PERSISTENCE_FILE}\n")
         except Exception:
             pass
         try:
@@ -9112,7 +9123,7 @@ def toggle_universal_archive_setting():
         append_log(
             "Universal archives are enabled:\n"
             f"Audio/Video (Archive Mode = Use): {UNIVERSAL_ARCHIVE_FILE}\n"
-            f"Image (Archive Mode = Use): {IMAGE_UNIVERSAL_ARCHIVE_FILE}\n"
+            f"Gallery/Profile (Archive Mode = Use): {IMAGE_UNIVERSAL_ARCHIVE_FILE}\n"
             f"Webpage: {WEB_UNIVERSAL_ARCHIVE_FILE}\n"
         )
 
@@ -9120,7 +9131,7 @@ def toggle_universal_archive_setting():
 def delete_universal_archive_file():
     archive_groups = [
         ("Audio/Video", UNIVERSAL_ARCHIVE_FILE, [UNIVERSAL_ARCHIVE_FILE]),
-        ("Image", IMAGE_UNIVERSAL_ARCHIVE_FILE, [IMAGE_UNIVERSAL_ARCHIVE_FILE]),
+        ("Gallery/Profile", IMAGE_UNIVERSAL_ARCHIVE_FILE, [IMAGE_UNIVERSAL_ARCHIVE_FILE]),
         (
             "Webpage",
             WEB_UNIVERSAL_ARCHIVE_FILE,
@@ -9143,7 +9154,7 @@ def delete_universal_archive_file():
             "Universal archives not found",
             "No app-level universal archive files exist yet:\n\n"
             f"Audio/Video: {UNIVERSAL_ARCHIVE_FILE}\n"
-            f"Image: {IMAGE_UNIVERSAL_ARCHIVE_FILE}\n"
+            f"Gallery/Profile: {IMAGE_UNIVERSAL_ARCHIVE_FILE}\n"
             f"Webpage: {WEB_UNIVERSAL_ARCHIVE_FILE}",
         )
         return
@@ -9207,7 +9218,7 @@ def clear_url_history_files():
     if not roots:
         messagebox.showinfo(
             "No Output Root",
-            "No Audio/Video, Image, or Webpage Capture Output Root is currently configured.",
+            "No Audio/Video, Gallery/Profile, or Webpage Capture Output Root is currently configured.",
         )
         return
 
@@ -13713,17 +13724,39 @@ def finish_queue_job(job_id, exit_code, submitted_url_count, universal_skip_reco
     job["finished"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     job["exit_code"] = exit_code
 
-    if exit_code == 0:
-        job["status"] = "completed"
-        job_log(f"\nQueue job completed successfully: {job.get('resolved_case_name', '')}\n")
-        set_status("Queue job completed")
-    elif job.get("_interruption_requested"):
+    web_terminal_issue = False
+    web_terminal_issue_text = ""
+    if engine == "web-capture":
+        web_records = normalize_web_capture_classification_records(
+            job.get("web_capture_classifications", {}),
+            len(job.get("urls", []) or []),
+        )
+        web_counts = summarize_web_capture_classifications(web_records)
+        if int(web_counts.get("failed", 0) or 0) > 0:
+            web_terminal_issue = True
+            web_terminal_issue_text = "one or more Webpage URLs remain Failed"
+        elif int(web_counts.get("partial", 0) or 0) > 0:
+            web_terminal_issue = True
+            web_terminal_issue_text = "one or more Webpage URLs remain Partial"
+
+    if job.get("_interruption_requested"):
         job["status"] = "interrupted"
         job["exit_code"] = "interrupted"
         job["interrupted_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         job["interrupted_reason"] = job.get("interrupted_reason") or "Stopped by user."
         job_log(f"\nQueue job interrupted: {job.get('resolved_case_name', '')}\n")
         set_status("Queue job interrupted")
+    elif exit_code == 0 and not web_terminal_issue:
+        job["status"] = "completed"
+        job_log(f"\nQueue job completed successfully: {job.get('resolved_case_name', '')}\n")
+        set_status("Queue job completed")
+    elif exit_code == 0 and web_terminal_issue:
+        job["status"] = "failed"
+        job_log(
+            f"\nQueue job remains failed after recovery because {web_terminal_issue_text}: "
+            f"{job.get('resolved_case_name', '')}\n"
+        )
+        set_status("Queue job remains incomplete")
     else:
         job["status"] = "failed"
         job_log(f"\nQueue job failed with exit code {exit_code}: {job.get('resolved_case_name', '')}\n")
@@ -14559,7 +14592,7 @@ def fetch_latest_app_release():
 
 def open_about_dialog():
     dialog = tk.Toplevel(root)
-    dialog.title("About Webpage/Audio/Video/Gallery/Profile Capture GUI for OSINT")
+    dialog.title("About Webpage/Audio/Video/Image Capture GUI for OSINT")
     dialog.resizable(False, False)
     dialog.transient(root)
     dialog.grab_set()
@@ -14569,7 +14602,7 @@ def open_about_dialog():
 
     ttk.Label(
         frame,
-        text="Webpage/Audio/Video/Gallery/Profile Capture GUI for OSINT",
+        text="Webpage/Audio/Video/Image Capture GUI for OSINT",
         font=("Segoe UI", 12, "bold"),
     ).grid(row=0, column=0, sticky="w", pady=(0, 6))
 
@@ -14581,10 +14614,9 @@ def open_about_dialog():
     ttk.Label(
         frame,
         text=(
-            "A portable Windows GUI for running approved webpage, audio, video, and gallery/profile capture workflows "
-            "for OSINT-style collection and review.\n\n"
-            "This app does not bundle yt-dlp, gallery-dl, FFmpeg, Deno, Chromium browsers, or other binaries. "
-            "Use official, signed, organization-approved binaries where required."
+            "A portable Windows GUI for running webpage, audio, video, and gallery/profile capture workflows "
+            "for OSINT-style collection and review using yt-dlp, gallery-dl, Deno, installed Chromium browsers, "
+            "and companion scripts."
         ),
         wraplength=520,
         justify="left",
@@ -22288,7 +22320,7 @@ def on_close():
     try:
         direct_image_active = bool(image_running_process is not None and image_running_process.poll() is None)
     except Exception as e:
-        log_debug_exception("Could not determine Image direct process state during shutdown", e)
+        log_debug_exception("Could not determine Gallery/Profile direct process state during shutdown", e)
         direct_image_active = False
 
     try:
@@ -22345,7 +22377,7 @@ def on_close():
             try:
                 mark_direct_recovery_job_interrupted(active_image_direct_recovery_job_id, "App closed while direct capture was running.")
             except Exception as e:
-                log_debug_exception("Could not mark Image direct recovery job interrupted during shutdown", e)
+                log_debug_exception("Could not mark Gallery/Profile direct recovery job interrupted during shutdown", e)
             terminate_process_tree(image_running_process, label="direct Gallery/Profile Capture")
 
         if direct_web_active:
@@ -25077,7 +25109,7 @@ try:
     ORIGINAL_TTK_THEME = ttk.Style(root).theme_use()
 except Exception:
     ORIGINAL_TTK_THEME = ""
-root.title(f"{APP_TITLE} - Profile: {DEFAULT_PROFILE_NAME}")
+root.title(f"{APP_WINDOW_TITLE} - Profile: {DEFAULT_PROFILE_NAME}")
 apply_screen_aware_startup_geometry()
 install_global_scroll_recognition(root)
 
@@ -26180,13 +26212,13 @@ def load_image_urls_from_input_file(replace=True):
     urls = read_urls_from_input_paths(paths, log_errors=True)
     if replace:
         set_image_url_box_urls(urls)
-        image_append_log(f"\nLoaded {len(urls)} image URL(s) from Input File(s).\n")
+        image_append_log(f"\nLoaded {len(urls)} Gallery/Profile URL(s) from Input File(s).\n")
     else:
         current = image_urls_text.get("1.0", "end").strip()
         addition = "\n".join(urls).strip()
         image_urls_text.delete("1.0", "end")
         image_urls_text.insert("1.0", ((current + "\n") if current else "") + addition)
-        image_append_log(f"\nAppended {len(urls)} image URL(s) from Input File(s).\n")
+        image_append_log(f"\nAppended {len(urls)} Gallery/Profile URL(s) from Input File(s).\n")
 
 
 def save_image_urls_to_input_file():
@@ -26914,7 +26946,7 @@ def show_image_run_summary(exit_code, submitted_url_count):
     context = last_image_capture_context if isinstance(last_image_capture_context, dict) else {}
     paths = context.get("paths", {})
     counts = count_case_files(paths.get("case_folder", "")) if paths else {}
-    image_append_log("\n========== Image Run Summary ==========\n")
+    image_append_log("\n========== Gallery/Profile Run Summary ==========\n")
     image_append_log(f"Exit code: {exit_code}\n")
     image_append_log(f"Submitted URLs: {submitted_url_count}\n")
     if paths:
@@ -26944,7 +26976,7 @@ def show_image_run_summary(exit_code, submitted_url_count):
             settings=context.get("settings", {}),
         )
         update_case_summary_action_states("gallery-dl")
-        image_append_log("Image case summary is available. Use Copy Case Summary or its menu for case URL lists.\n")
+        image_append_log("Gallery/Profile case summary is available. Use Copy Case Summary or its menu for case URL lists.\n")
     else:
         last_successful_image_case_summary = ""
         update_case_summary_action_states("gallery-dl")
@@ -27002,7 +27034,7 @@ def start_image_capture():
         return
 
     if image_running_process is not None and image_running_process.poll() is None:
-        messagebox.showwarning("Already running", "An Gallery/Profile Capture process is already running.")
+        messagebox.showwarning("Already running", "A Gallery/Profile Capture process is already running.")
         return
 
     cmd = []

@@ -2,6 +2,11 @@
 
 Notable user-facing changes to WAVI Capture GUI for OSINT are listed below.
 
+## [v3.2026.0902](https://github.com/jmashuque/wavi-capture-gui-for-osint/releases/tag/v3.2026.0902) - Recovery Correctness and Failure-State Hardening
+
+- Corrected Webpage sparse recovery so successfully retrying unresolved URLs does not mark a job complete while any original URL remains Partial or Failed.
+- Hardened Audio/Video and Webpage continuation so a previously Failed job cannot be changed to Completed solely because no unresolved URL indexes remain, preserving run-level failure state and exit results.
+
 ## [v3.2026.0831](https://github.com/jmashuque/wavi-capture-gui-for-osint/releases/tag/v3.2026.0831) - Profile Capture, Scope Controls, and Smarter Recovery
 
 - Renamed Image Capture to Gallery/Profile Capture and expanded its workflow around profile, timeline, gallery, album, post, and other supported gallery-dl media collection sources.
